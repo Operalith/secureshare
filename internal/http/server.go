@@ -101,10 +101,20 @@ func templatePattern() string {
 	return filepath.Join("..", "..", "web", "templates", "*.html")
 }
 
+func openAPIPath() string {
+	path := filepath.Join("docs", "openapi.yaml")
+	if matches, _ := filepath.Glob(path); len(matches) > 0 {
+		return path
+	}
+	return filepath.Join("..", "..", "docs", "openapi.yaml")
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	mux.HandleFunc("/", s.handleRoot)
+	mux.HandleFunc("/docs", s.handleDocsPage)
+	mux.HandleFunc("/openapi.yaml", s.handleOpenAPISpec)
 	mux.HandleFunc("/login", s.handleLoginPage)
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/secrets", s.handleSecretListPage)
@@ -260,6 +270,63 @@ func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "help.html", s.adminData(r, map[string]any{"Title": "Help"}))
+}
+
+func (s *Server) handleDocsPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/docs" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.cfg.SwaggerUIEnabled {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requireDocsAccess(w, r, true) {
+		return
+	}
+	data := map[string]any{
+		"Title":         "API Docs",
+		"Env":           s.cfg.AppEnv,
+		"ActorID":       "public",
+		"Role":          "public",
+		"Permissions":   permissionsMap([]string{"api-docs:read"}),
+		"OpenAPIPublic": s.cfg.OpenAPIPublic,
+	}
+	if _, ok := s.auth.FromRequest(r); ok {
+		data = s.adminData(r, map[string]any{"Title": "API Docs", "OpenAPIPublic": s.cfg.OpenAPIPublic})
+	}
+	s.render(w, "docs.html", data)
+}
+
+func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireDocsAccess(w, r, false) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	http.ServeFile(w, r, openAPIPath())
+}
+
+func (s *Server) requireDocsAccess(w http.ResponseWriter, r *http.Request, browserPage bool) bool {
+	if s.cfg.OpenAPIPublic {
+		return true
+	}
+	if session, ok := s.auth.FromRequest(r); ok && session.Permissions["api-docs:read"] {
+		return true
+	}
+	if browserPage {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return false
+	}
+	s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+	return false
 }
 
 func (s *Server) handleUsersPage(w http.ResponseWriter, r *http.Request) {

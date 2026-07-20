@@ -1,4 +1,4 @@
-.PHONY: up down build test integration-test smoke security-test logs clean fmt lint
+.PHONY: up down build test integration-test smoke security-test openapi-validate logs clean fmt lint
 
 up:
 	docker compose up -d --build
@@ -20,6 +20,9 @@ smoke:
 
 security-test:
 	./scripts/security-test.sh
+
+openapi-validate:
+	ruby scripts/openapi-validate.rb
 
 logs:
 	docker compose logs -f app

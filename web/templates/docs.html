@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API Docs - SecureShare</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/swagger-ui/swagger-ui.css">
+  <link rel="icon" href="/static/swagger-ui/favicon-32x32.png">
+  <script src="/static/swagger-ui/swagger-ui-bundle.js" defer></script>
+  <script src="/static/swagger-ui/swagger-ui-standalone-preset.js" defer></script>
+  <script src="/static/swagger-ui/swagger-init.js" defer></script>
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation">
+        <a href="/admin">Dashboard</a>
+        <a href="/admin/secrets/new">Create Secret</a>
+        <a href="/admin/secrets">Secret Links</a>
+        {{ if hasPermission .Permissions "user:manage" }}<a href="/admin/users">Users</a>{{ end }}
+        {{ if hasPermission .Permissions "api-client:manage" }}<a href="/admin/api-clients">API Clients</a>{{ end }}
+        {{ if ne .Role "public" }}<a href="/admin/account">Account</a>{{ end }}
+        <a href="/admin/help">Help</a>
+        <a class="active" href="/docs">API Docs</a>
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Developer documentation</p><h1>API Docs</h1></div>
+        <div class="header-actions">
+          <span class="env-pill">{{ .Env }}</span>
+          <span class="user-pill">{{ .Role }}</span>
+          <a class="button-link secondary-link compact" href="/openapi.yaml">OpenAPI YAML</a>
+          {{ if ne .Role "public" }}<form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form>{{ end }}
+        </div>
+      </header>
+      <main class="content-grid docs-grid">
+        <section class="panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">Authentication</p><h2>Scoped API clients</h2></div>
+            <span class="badge neutral">{{ if .OpenAPIPublic }}Public spec{{ else }}Authenticated spec{{ end }}</span>
+          </div>
+          <p>Use HTTP Basic auth with <span class="technical-value">client_id:client_secret</span>. Client secrets are shown only when created or rotated. The legacy bearer admin key remains available only while <span class="technical-value">LEGACY_ADMIN_API_KEY_ENABLED</span> is true.</p>
+          <pre><code>curl -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -H "Content-Type: application/json" \
+  http://localhost:8080/api/v1/secret-links</code></pre>
+        </section>
+        <section class="panel swagger-panel">
+          <div id="swagger-ui" data-openapi-url="/openapi.yaml"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

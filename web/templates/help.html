@@ -20,6 +20,7 @@
         {{ if hasPermission .Permissions "api-client:manage" }}<a href="/admin/api-clients">API Clients</a>{{ end }}
         <a href="/admin/account">Account</a>
         <a href="/admin/status">System Status</a>
+        <a href="/docs">API Docs</a>
         <a class="active" href="/admin/help">Help</a>
       </nav>
     </aside>
@@ -46,6 +47,10 @@
           <article>
             <h2>Operations</h2>
             <p>Use the status page, health endpoints, metrics, and documentation files for operational checks and production hardening.</p>
+          </article>
+          <article>
+            <h2>API documentation</h2>
+            <p>Open <a href="/docs">Swagger UI</a> for authenticated API exploration, examples, and the OpenAPI schema.</p>
           </article>
         </section>
       </main>

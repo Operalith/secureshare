@@ -79,6 +79,8 @@ services:
       MAX_SECRET_BYTES: ${MAX_SECRET_BYTES:-32768}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      OPENAPI_PUBLIC: ${OPENAPI_PUBLIC:-false}
+      SWAGGER_UI_ENABLED: ${SWAGGER_UI_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy

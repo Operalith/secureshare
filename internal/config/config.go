@@ -43,6 +43,8 @@ type Config struct {
 	AuditRetention           time.Duration
 	LogLevel                 string
 	MetricsEnabled           bool
+	OpenAPIPublic            bool
+	SwaggerUIEnabled         bool
 	MigrationsDir            string
 	MaxSecretBytes           int64
 	RequestIPHashPepper      string
@@ -68,6 +70,8 @@ func Load() (Config, error) {
 		BootstrapAdminPassword:   getenv("BOOTSTRAP_ADMIN_PASSWORD", "change-me-now"),
 		LogLevel:                 strings.ToLower(getenv("LOG_LEVEL", "info")),
 		MetricsEnabled:           getenvBool("METRICS_ENABLED", true),
+		OpenAPIPublic:            getenvBool("OPENAPI_PUBLIC", false),
+		SwaggerUIEnabled:         getenvBool("SWAGGER_UI_ENABLED", true),
 		MigrationsDir:            getenv("MIGRATIONS_DIR", "migrations"),
 		MaxSecretBytes:           getenvInt64("MAX_SECRET_BYTES", DefaultMaxSecretBytes),
 		RequestIPHashPepper:      getenv("REQUEST_IP_HASH_PEPPER", ""),

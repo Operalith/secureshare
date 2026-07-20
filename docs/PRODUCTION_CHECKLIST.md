@@ -12,6 +12,8 @@ Use this checklist before exposing SecureShare outside a local development envir
 - [ ] Strong `SECURESHARE_ADMIN_API_KEY` generated and stored in the secret manager for temporary legacy compatibility.
 - [ ] Scoped API clients created for integrations.
 - [ ] `LEGACY_ADMIN_API_KEY_ENABLED=false` after legacy integrations migrate.
+- [ ] `OPENAPI_PUBLIC=false` unless public API metadata is explicitly approved.
+- [ ] Swagger UI served from local assets only.
 - [ ] Strong `TOKEN_HMAC_PEPPER` generated, backed up securely, and access-restricted.
 - [ ] Strong `SESSION_SECRET` generated and stored in the secret manager.
 - [ ] Strong `CSRF_SECRET` generated and stored in the secret manager.
@@ -48,6 +50,7 @@ Before promoting a new image:
 go test ./...
 go vet ./...
 make lint
+make openapi-validate
 make smoke
 make integration-test
 make security-test

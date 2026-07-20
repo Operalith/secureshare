@@ -946,6 +946,19 @@ th {
   background: var(--surface-strong);
 }
 
+.docs-grid {
+  width: min(1440px, calc(100% - 40px));
+}
+
+.swagger-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.swagger-panel .swagger-ui {
+  color: #1f2933;
+}
+
 .recipient-page {
   min-height: 100vh;
   display: grid;

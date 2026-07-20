@@ -47,6 +47,7 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Admin API key brute force.
 - API client credential brute force or leaked client secret.
 - Request or response body capture by middleware, reverse proxies, APM, or logs.
+- Public exposure of API metadata if `OPENAPI_PUBLIC=true` is enabled unintentionally.
 - Insider access to PostgreSQL backups.
 
 ## Existing Controls
@@ -65,6 +66,7 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Browser state-changing admin requests require CSRF tokens.
 - Machine-authenticated Basic and legacy bearer requests are exempt from browser CSRF.
 - API client secrets are shown only once, stored only as server-peppered HMACs, and can be disabled, revoked, expired, or rotated.
+- OpenAPI and Swagger UI are authenticated by default and served from local assets with persisted authorization disabled.
 - Login, create, prepare, and consume paths are rate-limited in memory.
 - Security headers include no-store cache policy, no-referrer, CSP, frame denial, and nosniff.
 - Structured request logging uses request ID, path, status, latency, and keyed IP hash only.

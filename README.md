@@ -49,6 +49,7 @@ The Compose file also supplies development defaults, so `docker compose up -d --
 - Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, user management, API client management, system status, help, and light/dark mode.
 - Provides safe admin APIs for dashboard statistics, paginated metadata listing, idempotent revoke, and manual cleanup.
 - Supports scoped API clients with one-time client secret display, HMAC-hashed storage, expiration, disable, revoke, and rotation.
+- Serves local Swagger UI at `/docs` and raw OpenAPI 3.1 at `/openapi.yaml`.
 - Uses at least 256 bits of random token entropy.
 - Places the raw token in the URL fragment, for example `http://localhost:8080/s#token`, so browsers do not send it automatically in normal page requests.
 - Stores only `HMAC-SHA256(token_pepper, raw_token)` in PostgreSQL.
@@ -107,6 +108,16 @@ curl -sS -X POST http://localhost:8080/api/v1/secret-links \
 
 Open the returned `url` in a browser. The recipient page strips the fragment from the address bar before POSTing the token.
 
+## Developer Documentation
+
+- Swagger UI: `http://localhost:8080/docs`
+- Raw OpenAPI: `http://localhost:8080/openapi.yaml`
+- Developer guide: `docs/DEVELOPER_GUIDE.md`
+- Examples: `examples/curl/`, `examples/go/`, `examples/python/`, `examples/javascript/`
+- Postman collection: `docs/postman/`
+
+Swagger UI and the OpenAPI spec are authenticated by default. Set `OPENAPI_PUBLIC=true` only when the deployment intentionally exposes the spec.
+
 ## UI Usage
 
 1. Visit `http://localhost:8080/login`.
@@ -122,6 +133,7 @@ The admin interface never shows the original secret after creation. Historical r
 ```bash
 make test
 make lint
+make openapi-validate
 make security-test
 ```
 

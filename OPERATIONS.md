@@ -24,6 +24,8 @@ Important values:
 - `DEFAULT_SECRET_TTL`: default expiration, default `24h`.
 - `CONSUMING_LEASE_TTL`: active consuming lease duration.
 - `CLEANUP_INTERVAL`: background cleanup cadence.
+- `OPENAPI_PUBLIC`: exposes `/openapi.yaml` and `/docs` without login when true.
+- `SWAGGER_UI_ENABLED`: serves the local Swagger UI at `/docs` when true.
 
 Outside development, startup fails for weak admin keys, token peppers, session secrets, CSRF secrets, and insecure cookies.
 
@@ -68,6 +70,16 @@ Prometheus metrics are exposed at `/metrics`:
 - `secureshare_active_secrets`
 
 Metrics avoid token IDs, merchant IDs, usernames, recipient references, and other high-cardinality labels.
+
+## API Documentation
+
+The local Swagger UI is served from bundled assets at `/docs`. The raw OpenAPI 3.1 spec is served at `/openapi.yaml`. Both require a logged-in user with API documentation permission unless `OPENAPI_PUBLIC=true`.
+
+Run local validation before deployment:
+
+```bash
+make openapi-validate
+```
 
 To run local Prometheus:
 

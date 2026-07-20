@@ -79,6 +79,8 @@ The frontend does not use localStorage, sessionStorage, IndexedDB, cookies, serv
 
 HTTPS and HSTS are mandatory in production.
 
+Swagger UI is served from local assets only. It disables persisted authorization, does not prefill API client credentials, and uses the authenticated `/openapi.yaml` endpoint unless `OPENAPI_PUBLIC=true`.
+
 ## Admin Users, Session and CSRF
 
 The browser admin UI uses local PostgreSQL users and opaque HTTP-only SameSite cookies. Only a keyed session-token hash is stored in PostgreSQL. Session TTL, idle timeout, secure cookie behavior, and CSRF signing are configured with `SESSION_TTL`, `SESSION_IDLE_TIMEOUT`, `COOKIE_SECURE`, and `CSRF_SECRET`.

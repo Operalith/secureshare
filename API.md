@@ -8,6 +8,8 @@ http://localhost:8080
 
 All responses use JSON for API endpoints.
 
+OpenAPI documentation is available at `/docs`, and the raw OpenAPI 3.1 document is available at `/openapi.yaml`. Both are authenticated by default unless `OPENAPI_PUBLIC=true`.
+
 ## Authentication
 
 Machine integrations should authenticate with scoped API clients over HTTP Basic auth:

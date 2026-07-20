@@ -1,0 +1,1291 @@
+openapi: 3.1.0
+info:
+  title: SecureShare API
+  version: 1.0.0
+  summary: One-time secret delivery API for scoped internal integrations.
+  description: >
+    SecureShare creates encrypted one-time delivery links for structured credentials,
+    text, JSON, and configuration snippets. Secret values are write-only on create
+    and are returned only by the one-time consume endpoint.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Authentication
+  - name: Current User
+  - name: Secret Links
+  - name: Recipient
+  - name: Dashboard
+  - name: Users
+  - name: API Clients
+  - name: Operations
+  - name: Health
+security:
+  - ApiClientAuth: []
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Browser login
+      description: Starts a PostgreSQL-backed browser session and returns a CSRF token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout browser session
+      description: Invalidates the current browser session. Browser requests require CSRF.
+      security:
+        - CookieSession: []
+        - LegacyAdminBearer: []
+      responses:
+        '200':
+          $ref: '#/components/responses/OK'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/me:
+    get:
+      tags: [Current User]
+      summary: Get current user
+      security:
+        - CookieSession: []
+      responses:
+        '200':
+          description: Current user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/me/password:
+    post:
+      tags: [Current User]
+      summary: Change current password
+      security:
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OK'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/me/sessions:
+    get:
+      tags: [Current User]
+      summary: List current user sessions
+      security:
+        - CookieSession: []
+      responses:
+        '200':
+          description: Active and revoked session metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserSession'
+  /api/v1/me/sessions/revoke-other:
+    post:
+      tags: [Current User]
+      summary: Revoke other sessions
+      security:
+        - CookieSession: []
+      responses:
+        '200':
+          $ref: '#/components/responses/OK'
+  /api/v1/secret-links:
+    post:
+      tags: [Secret Links]
+      summary: Create one-time secret link
+      description: Requires `secret:create`. Values in `payload` and legacy `secret` are encrypted and never returned by metadata APIs.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecretRequest'
+            examples:
+              usernamePassword:
+                summary: Username and password
+                value:
+                  title: Merchant login
+                  expires_in_seconds: 86400
+                  payload:
+                    type: structured
+                    fields:
+                      - name: username
+                        label: Username
+                        value: example-username
+                        sensitive: false
+                        multiline: false
+                      - name: password
+                        label: Password
+                        value: example-password
+                        sensitive: true
+                        multiline: false
+              apiKeyOnly:
+                summary: API key only
+                value:
+                  title: Merchant API key
+                  expires_in_seconds: 3600
+                  payload:
+                    type: structured
+                    fields:
+                      - name: api_key
+                        label: API Key
+                        value: example-api-key
+                        sensitive: true
+                        multiline: false
+      responses:
+        '201':
+          description: One-time link created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSecretResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+    get:
+      tags: [Secret Links]
+      summary: List secret metadata
+      description: Requires `secret:read-metadata` or `secret:list`.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/CreatedFrom'
+        - $ref: '#/components/parameters/CreatedTo'
+        - $ref: '#/components/parameters/ExpiresFrom'
+        - $ref: '#/components/parameters/ExpiresTo'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+      responses:
+        '200':
+          description: Secret metadata list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretListResponse'
+  /api/v1/secret-links/{id}:
+    get:
+      tags: [Secret Links]
+      summary: Get secret metadata
+      description: Requires `secret:read-metadata`. Does not return secret values or URL tokens.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryID'
+      responses:
+        '200':
+          description: Secret metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretMetadata'
+  /api/v1/secret-links/{id}/revoke:
+    post:
+      tags: [Secret Links]
+      summary: Revoke secret link
+      description: Requires `secret:revoke`. Revocation is idempotent.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryID'
+      responses:
+        '200':
+          description: Revocation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeSecretResponse'
+  /api/v1/secret-links/prepare:
+    post:
+      tags: [Recipient]
+      summary: Prepare one-time reveal
+      description: Checks whether the token may be attempted without consuming the secret.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrepareRequest'
+      responses:
+        '200':
+          description: Reveal attempt state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepareResponse'
+  /api/v1/secret-links/consume:
+    post:
+      tags: [Recipient]
+      summary: Consume one-time secret
+      description: Consumes a valid token exactly once and returns the decrypted canonical payload.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumeRequest'
+      responses:
+        '200':
+          description: Decrypted one-time payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumeResponse'
+        '410':
+          $ref: '#/components/responses/SecretUnavailable'
+  /api/v1/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Dashboard metrics
+      description: Requires `dashboard:read` or browser metadata permission.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: Safe aggregate dashboard response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+  /api/v1/admin/cleanup:
+    post:
+      tags: [Operations]
+      summary: Run manual cleanup
+      description: Admin-only operation. API clients cannot call this endpoint.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: Cleanup result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CleanupResponse'
+  /api/v1/users:
+    get:
+      tags: [Users]
+      summary: List users
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: User list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+    post:
+      tags: [Users]
+      summary: Create user
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /api/v1/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      responses:
+        '200':
+          description: User metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    patch:
+      tags: [Users]
+      summary: Update user
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /api/v1/users/{id}/reset-password:
+    post:
+      tags: [Users]
+      summary: Reset user password
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OK'
+  /api/v1/users/{id}/disable:
+    post:
+      tags: [Users]
+      summary: Disable user
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      responses:
+        '200':
+          description: User disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /api/v1/users/{id}/enable:
+    post:
+      tags: [Users]
+      summary: Enable user
+      description: Admin-only.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      responses:
+        '200':
+          description: User enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /api/v1/api-clients:
+    get:
+      tags: [API Clients]
+      summary: List API clients
+      description: Admin-only. Secrets and secret hashes are never returned.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: API client list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIClient'
+    post:
+      tags: [API Clients]
+      summary: Create API client
+      description: Admin-only. The client secret is returned only in this response.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIClientRequest'
+      responses:
+        '201':
+          description: API client created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIClientResponse'
+  /api/v1/api-clients/{id}:
+    get:
+      tags: [API Clients]
+      summary: Get API client
+      description: Admin-only. Does not return the client secret or hash.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/APIClientID'
+      responses:
+        '200':
+          description: API client metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+  /api/v1/api-clients/{id}/disable:
+    post:
+      tags: [API Clients]
+      summary: Disable API client
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/APIClientID'
+      responses:
+        '200':
+          description: Client disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+  /api/v1/api-clients/{id}/enable:
+    post:
+      tags: [API Clients]
+      summary: Enable API client
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/APIClientID'
+      responses:
+        '200':
+          description: Client enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+  /api/v1/api-clients/{id}/revoke:
+    post:
+      tags: [API Clients]
+      summary: Revoke API client
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/APIClientID'
+      responses:
+        '200':
+          description: Client revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIClient'
+  /api/v1/api-clients/{id}/rotate-secret:
+    post:
+      tags: [API Clients]
+      summary: Rotate API client secret
+      description: The new client secret is returned only in this response.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/APIClientID'
+      responses:
+        '200':
+          description: Client secret rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIClientResponse'
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      security: []
+      responses:
+        '200':
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      security: []
+      responses:
+        '200':
+          description: Dependencies are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /metrics:
+    get:
+      tags: [Operations]
+      summary: Prometheus metrics
+      description: Exposed when `METRICS_ENABLED=true`.
+      security: []
+      responses:
+        '200':
+          description: Prometheus text exposition.
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    ApiClientAuth:
+      type: http
+      scheme: basic
+      description: HTTP Basic auth with `client_id` as username and `client_secret` as password. Use HTTPS in production.
+    LegacyAdminBearer:
+      type: http
+      scheme: bearer
+      description: Deprecated global admin key. Disable with `LEGACY_ADMIN_API_KEY_ENABLED=false` after migration.
+    CookieSession:
+      type: apiKey
+      in: cookie
+      name: ss_session
+      description: Browser session cookie. State-changing browser calls also require `X-CSRF-Token`.
+  parameters:
+    DeliveryID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    APIClientID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        enum: [10, 25, 50, 100]
+        default: 25
+    Status:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [active, consuming, consumed, expired, revoked]
+    Search:
+      name: search
+      in: query
+      schema:
+        type: string
+    CreatedFrom:
+      name: created_from
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedTo:
+      name: created_to
+      in: query
+      schema:
+        type: string
+        format: date-time
+    ExpiresFrom:
+      name: expires_from
+      in: query
+      schema:
+        type: string
+        format: date-time
+    ExpiresTo:
+      name: expires_to
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Sort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [created_at, expires_at]
+    Order:
+      name: order
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+  schemas:
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          example: admin
+        password:
+          type: string
+          writeOnly: true
+          example: example-password
+    LoginResponse:
+      type: object
+      required: [ok, actor_id, role, csrf_token]
+      properties:
+        ok:
+          type: boolean
+        actor_id:
+          type: string
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+        csrf_token:
+          type: string
+          writeOnly: true
+    CurrentUser:
+      type: object
+      required: [id, username, email, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          example: developer1
+        email:
+          type: string
+          format: email
+          example: developer1@example.local
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+        new_password:
+          type: string
+          writeOnly: true
+    UserSession:
+      type: object
+      required: [id, user_id, expires_at, last_seen_at, created_at, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+    StructuredSecretField:
+      type: object
+      required: [name, label, value, sensitive, multiline]
+      properties:
+        name:
+          type: string
+          pattern: '^[A-Za-z0-9_.-]+$'
+          example: username
+        label:
+          type: string
+          maxLength: 100
+          example: Username
+        value:
+          type: string
+          writeOnly: true
+          example: example-username
+        sensitive:
+          type: boolean
+          example: false
+        multiline:
+          type: boolean
+          example: false
+    StructuredSecretPayload:
+      type: object
+      required: [type, fields]
+      properties:
+        type:
+          type: string
+          const: structured
+        fields:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/StructuredSecretField'
+    TextSecretPayload:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          const: text
+        text:
+          type: string
+          writeOnly: true
+          example: example configuration snippet
+    JSONSecretPayload:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          const: json
+        value:
+          writeOnly: true
+          description: Arbitrary JSON secret value.
+          examples:
+            - username: example-username
+              password: example-password
+    SecretPayload:
+      oneOf:
+        - $ref: '#/components/schemas/StructuredSecretPayload'
+        - $ref: '#/components/schemas/TextSecretPayload'
+        - $ref: '#/components/schemas/JSONSecretPayload'
+      discriminator:
+        propertyName: type
+    CreateSecretRequest:
+      type: object
+      required: [expires_in_seconds]
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          example: Merchant production credentials
+        description:
+          type: string
+          maxLength: 2000
+        recipient_reference:
+          type: string
+          maxLength: 255
+          example: merchant-1001
+        payload:
+          $ref: '#/components/schemas/SecretPayload'
+        secret:
+          deprecated: true
+          writeOnly: true
+          description: Deprecated legacy secret field. Use `payload` instead.
+        expires_in_seconds:
+          type: integer
+          minimum: 1
+          example: 86400
+        password:
+          type:
+            - string
+            - 'null'
+          writeOnly: true
+        max_failed_attempts:
+          type: integer
+          minimum: 0
+          maximum: 20
+          default: 5
+    CreateSecretResponse:
+      type: object
+      required: [id, url, status, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          description: One-time recipient URL containing the raw token in the URL fragment. Do not log it.
+          example: http://localhost:8080/s#example-token
+        status:
+          type: string
+          enum: [active]
+        expires_at:
+          type: string
+          format: date-time
+    SecretMetadata:
+      type: object
+      required: [id, status, expires_at, created_by, created_at, updated_at, password_protected, failed_attempts, max_failed_attempts, payload_type, payload_field_count, payload_contains_sensitive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        recipient_reference:
+          type: string
+        status:
+          type: string
+          enum: [active, consuming, consumed, expired, revoked]
+        expires_at:
+          type: string
+          format: date-time
+        consumed_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        password_protected:
+          type: boolean
+        failed_attempts:
+          type: integer
+        max_failed_attempts:
+          type: integer
+        payload_type:
+          type: string
+          enum: [structured, text, json]
+        payload_field_count:
+          type: integer
+        payload_contains_sensitive:
+          type: boolean
+    SecretListResponse:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecretMetadata'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Pagination:
+      type: object
+      required: [page, page_size, total_items, total_pages]
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_items:
+          type: integer
+        total_pages:
+          type: integer
+    PrepareRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          writeOnly: true
+    PrepareResponse:
+      type: object
+      required: [may_attempt, password_required]
+      properties:
+        may_attempt:
+          type: boolean
+        password_required:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+    ConsumeRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+    ConsumeResponse:
+      type: object
+      required: [payload, secret]
+      properties:
+        payload:
+          $ref: '#/components/schemas/SecretPayload'
+        secret:
+          description: Deprecated compatibility projection for legacy clients.
+    RevokeSecretResponse:
+      type: object
+      required: [ok, status, revoked]
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: string
+        revoked:
+          type: boolean
+    DashboardResponse:
+      type: object
+      required: [active_count, consumed_count, expired_count, revoked_count, created_today, consumed_today, recent_activity, dependencies]
+      properties:
+        active_count:
+          type: integer
+        consumed_count:
+          type: integer
+        expired_count:
+          type: integer
+        revoked_count:
+          type: integer
+        created_today:
+          type: integer
+        consumed_today:
+          type: integer
+        recent_activity:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityEvent'
+        dependencies:
+          $ref: '#/components/schemas/DependencyState'
+    ActivityEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        delivery_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        recipient_reference:
+          type: string
+        status:
+          type: string
+        actor_id:
+          type: string
+        result:
+          type: string
+        ip_hash:
+          type: string
+        request_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+    DependencyState:
+      type: object
+      required: [postgres, vault]
+      properties:
+        postgres:
+          type: string
+        vault:
+          type: string
+    CleanupResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        cleanup:
+          type: object
+          properties:
+            expired:
+              type: integer
+            payloads_cleared:
+              type: integer
+            leases_restored:
+              type: integer
+            audit_deleted:
+              type: integer
+    User:
+      type: object
+      required: [id, username, email, role, status, force_password_change, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+        status:
+          type: string
+          enum: [active, disabled]
+        force_password_change:
+          type: boolean
+        last_login_at:
+          type: string
+          format: date-time
+        password_changed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      required: [username, email, password, role]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+        status:
+          type: string
+          enum: [active, disabled]
+        force_password_change:
+          type: boolean
+    UpdateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+        status:
+          type: string
+          enum: [active, disabled]
+        force_password_change:
+          type: boolean
+    ResetPasswordRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          writeOnly: true
+        force_password_change:
+          type: boolean
+    APIClient:
+      type: object
+      required: [id, name, client_id, status, scopes, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: CI deployment bot
+        client_id:
+          type: string
+          example: ssc_example
+        owner_user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, disabled, revoked]
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read']
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateAPIClientRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          example: CI deployment bot
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read']
+        expires_at:
+          type: string
+          format: date-time
+    CreateAPIClientResponse:
+      allOf:
+        - $ref: '#/components/schemas/APIClient'
+        - type: object
+          required: [client_secret]
+          properties:
+            client_secret:
+              type: string
+              writeOnly: true
+              example: sscs_copy-once-example
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, UNAUTHORIZED, FORBIDDEN, SECRET_UNAVAILABLE, RATE_LIMITED, PAYLOAD_TOO_LARGE, INTERNAL_ERROR, DEPENDENCY_UNAVAILABLE]
+        message:
+          type: string
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ready
+  responses:
+    OK:
+      description: Operation succeeded.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ok]
+            properties:
+              ok:
+                type: boolean
+    InvalidRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication failed or permission is missing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: CSRF validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SecretUnavailable:
+      description: Secret is invalid, expired, revoked, locked, unknown, or already consumed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: Payload exceeds configured size limit.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DependencyUnavailable:
+      description: Required dependency is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

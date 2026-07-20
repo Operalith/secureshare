@@ -15,6 +15,7 @@ RUN apk add --no-cache ca-certificates wget \
 WORKDIR /app
 COPY --from=build /out/secureshare /usr/local/bin/secureshare
 COPY migrations ./migrations
+COPY docs ./docs
 COPY web ./web
 
 ENV TMPDIR=/tmp

@@ -35,6 +35,8 @@ REQUEST_IP_HASH_PEPPER=...
 BOOTSTRAP_ADMIN_USERNAME=admin
 BOOTSTRAP_ADMIN_EMAIL=admin@example.com
 BOOTSTRAP_ADMIN_PASSWORD=...
+OPENAPI_PUBLIC=false
+SWAGGER_UI_ENABLED=true
 ```
 
 Then start the app:
@@ -101,6 +103,10 @@ The database stores Vault ciphertext, token HMACs, Argon2id password hashes, and
 ## API Clients
 
 Use the bootstrap administrator to create scoped API clients at `/admin/api-clients`, then store the one-time `client_secret` in the integration secret manager. New integrations should use Basic auth with `client_id:client_secret`; disable the legacy admin bearer key with `LEGACY_ADMIN_API_KEY_ENABLED=false` after migration.
+
+## API Documentation
+
+Swagger UI is served from local bundled assets at `/docs`. The raw OpenAPI 3.1 spec is served at `/openapi.yaml`. Keep `OPENAPI_PUBLIC=false` unless the deployment intentionally exposes API metadata.
 
 ## Observability
 

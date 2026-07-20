@@ -1,0 +1,83 @@
+{
+  "info": {
+    "name": "SecureShare",
+    "description": "Local SecureShare API examples. The consume request is destructive and can reveal a secret only once.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      {"key": "username", "value": "{{client_id}}", "type": "string"},
+      {"key": "password", "value": "{{client_secret}}", "type": "string"}
+    ]
+  },
+  "variable": [
+    {"key": "base_url", "value": "http://localhost:8080"},
+    {"key": "client_id", "value": ""},
+    {"key": "client_secret", "value": ""},
+    {"key": "delivery_id", "value": ""},
+    {"key": "reveal_token", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "Create secret",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "url": "{{base_url}}/api/v1/secret-links",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Postman example\",\n  \"expires_in_seconds\": 3600,\n  \"payload\": {\n    \"type\": \"structured\",\n    \"fields\": [\n      {\"name\":\"username\",\"label\":\"Username\",\"value\":\"example-user\",\"sensitive\":false,\"multiline\":false},\n      {\"name\":\"password\",\"label\":\"Password\",\"value\":\"example-password\",\"sensitive\":true,\"multiline\":false}\n    ]\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "List secrets",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/secret-links?page=1&page_size=25"
+      }
+    },
+    {
+      "name": "Get metadata",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/secret-links/{{delivery_id}}"
+      }
+    },
+    {
+      "name": "Revoke",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/api/v1/secret-links/{{delivery_id}}/revoke"
+      }
+    },
+    {
+      "name": "Prepare reveal",
+      "request": {
+        "auth": {"type": "noauth"},
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "url": "{{base_url}}/api/v1/secret-links/prepare",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{reveal_token}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Consume reveal - destructive one-time request",
+      "request": {
+        "auth": {"type": "noauth"},
+        "description": "Consumes the secret. A second request with the same token returns SECRET_UNAVAILABLE.",
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "url": "{{base_url}}/api/v1/secret-links/consume",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{reveal_token}}\"\n}"
+        }
+      }
+    }
+  ]
+}

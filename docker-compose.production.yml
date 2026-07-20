@@ -12,9 +12,13 @@ services:
       VAULT_TOKEN: ${VAULT_TOKEN:?set VAULT_TOKEN from a short-lived production auth flow}
       VAULT_TRANSIT_KEY: ${VAULT_TRANSIT_KEY:-secureshare}
       SECURESHARE_ADMIN_API_KEY: ${SECURESHARE_ADMIN_API_KEY:?set a strong admin API key}
+      LEGACY_ADMIN_API_KEY_ENABLED: ${LEGACY_ADMIN_API_KEY_ENABLED:-false}
       TOKEN_HMAC_PEPPER: ${TOKEN_HMAC_PEPPER:?set a backed-up token HMAC pepper}
       SESSION_SECRET: ${SESSION_SECRET:?set a strong session secret}
       CSRF_SECRET: ${CSRF_SECRET:?set a strong CSRF secret}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:?set bootstrap admin username}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?set bootstrap admin email}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set bootstrap admin password}
       REQUEST_IP_HASH_PEPPER: ${REQUEST_IP_HASH_PEPPER:?set a request IP hash pepper}
       MAX_SECRET_TTL: ${MAX_SECRET_TTL:-168h}
       DEFAULT_SECRET_TTL: ${DEFAULT_SECRET_TTL:-24h}
@@ -30,6 +34,8 @@ services:
       MAX_SECRET_BYTES: ${MAX_SECRET_BYTES:-32768}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      OPENAPI_PUBLIC: ${OPENAPI_PUBLIC:-false}
+      SWAGGER_UI_ENABLED: ${SWAGGER_UI_ENABLED:-true}
     ports:
       - "127.0.0.1:${SECURESHARE_HTTP_PORT:-8080}:8080"
     read_only: true

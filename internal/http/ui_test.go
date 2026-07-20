@@ -44,7 +44,7 @@ func TestAdminPagesRendering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create api client fixture: %v", err)
 	}
-	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/account", "/admin/status", "/admin/help"} {
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/account", "/admin/status", "/admin/help", "/docs"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.AddCookie(cookie)
@@ -176,6 +176,170 @@ func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 	}
 }
 
+func TestOpenAPISpecDocumentsRequiredRoutesAndSchemas(t *testing.T) {
+	rawBytes, err := os.ReadFile("../../docs/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(rawBytes)
+	for _, want := range []string{
+		"openapi: 3.1.0",
+		"/api/v1/secret-links:",
+		"/api/v1/secret-links/{id}:",
+		"/api/v1/secret-links/consume:",
+		"/api/v1/api-clients:",
+		"/api/v1/users:",
+		"StructuredSecretPayload:",
+		"StructuredSecretField:",
+		"TextSecretPayload:",
+		"JSONSecretPayload:",
+		"CreateSecretRequest:",
+		"CreateSecretResponse:",
+		"SecretMetadata:",
+		"SecretListResponse:",
+		"Pagination:",
+		"ErrorResponse:",
+		"DashboardResponse:",
+		"CurrentUser:",
+		"APIClient:",
+		"CreateAPIClientRequest:",
+		"CreateAPIClientResponse:",
+		"scheme: basic",
+		"writeOnly: true",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("openapi.yaml missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"sk_live_", "real-secret", "production-secret"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("openapi.yaml contains forbidden realistic secret example %q", forbidden)
+		}
+	}
+}
+
+func TestSwaggerUIRoutesAccessControlAndLocalAssets(t *testing.T) {
+	app := testServer()
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/docs", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("unauthenticated docs = %d, want 302", rec.Code)
+	}
+
+	specRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(specRec, httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil))
+	if specRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated openapi = %d, want 401", specRec.Code)
+	}
+
+	cookie := loginCookie(t, app)
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated docs = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"/static/swagger-ui/swagger-ui.css", "/static/swagger-ui/swagger-ui-bundle.js", "/static/swagger-ui/swagger-init.js", "/openapi.yaml"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("docs page missing local asset %q", want)
+		}
+	}
+	if strings.Contains(body, "https://cdn") || strings.Contains(body, "persistAuthorization: true") {
+		t.Fatalf("docs page contains external CDN or persisted auth config")
+	}
+
+	initBytes, err := os.ReadFile("../../web/static/swagger-ui/swagger-init.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	init := string(initBytes)
+	for _, want := range []string{"persistAuthorization: false", "validatorUrl: null"} {
+		if !strings.Contains(init, want) {
+			t.Fatalf("swagger init missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"localStorage", "sessionStorage", "indexedDB"} {
+		if strings.Contains(init, forbidden) {
+			t.Fatalf("swagger init contains browser storage reference %q", forbidden)
+		}
+	}
+
+	specReq := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
+	specReq.AddCookie(cookie)
+	specRec = httptest.NewRecorder()
+	app.Handler().ServeHTTP(specRec, specReq)
+	if specRec.Code != http.StatusOK {
+		t.Fatalf("authenticated openapi = %d, want 200", specRec.Code)
+	}
+	if !strings.Contains(specRec.Body.String(), "openapi: 3.1.0") {
+		t.Fatal("served openapi spec missing version")
+	}
+}
+
+func TestOpenAPIPublicModeDoesNotRenderAdminIdentity(t *testing.T) {
+	app := testServerWithConfig(func(cfg *config.Config) {
+		cfg.OpenAPIPublic = true
+	})
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/docs", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public docs = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "Logout") || strings.Contains(rec.Body.String(), "user-pill\">admin") {
+		t.Fatalf("public docs rendered authenticated admin chrome: %s", rec.Body.String())
+	}
+
+	specRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(specRec, httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil))
+	if specRec.Code != http.StatusOK {
+		t.Fatalf("public openapi = %d, want 200", specRec.Code)
+	}
+}
+
+func TestDeveloperExamplesAndPostmanArtifacts(t *testing.T) {
+	for _, path := range []string{
+		"../../docs/DEVELOPER_GUIDE.md",
+		"../../examples/curl/README.md",
+		"../../examples/go/main.go",
+		"../../examples/python/create_secret.py",
+		"../../examples/javascript/create-secret.mjs",
+		"../../docs/postman/secureshare.postman_collection.json",
+		"../../docs/postman/secureshare.local.postman_environment.json",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		for _, want := range []string{"SECURESHARE_CLIENT_ID", "SECURESHARE_CLIENT_SECRET"} {
+			if (strings.Contains(path, "examples/") || strings.Contains(path, "DEVELOPER_GUIDE")) && !strings.Contains(text, want) {
+				t.Fatalf("%s missing environment credential %q", path, want)
+			}
+		}
+		for _, forbidden := range []string{"sk_live_", "real-secret", "production-secret"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s contains forbidden realistic secret example %q", path, forbidden)
+			}
+		}
+	}
+
+	for _, path := range []string{
+		"../../docs/postman/secureshare.postman_collection.json",
+		"../../docs/postman/secureshare.local.postman_environment.json",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			t.Fatalf("%s is not valid JSON: %v", path, err)
+		}
+	}
+}
+
 func loginCookie(t *testing.T, app *Server) *http.Cookie {
 	t.Helper()
 	cookie, _ := loginSession(t, app, "admin", "change-me-now")
@@ -215,6 +379,7 @@ func testServerWithConfig(configure func(*config.Config)) *Server {
 		AppBaseURL:               "http://localhost:8080",
 		AdminAPIKey:              "change-me",
 		LegacyAdminAPIKeyEnabled: true,
+		SwaggerUIEnabled:         true,
 		TokenHMACPepper:          "test-pepper-with-enough-length",
 		SessionSecret:            "test-session-secret-with-enough-length",
 		CSRFSecret:               "test-csrf-secret-with-enough-length",
