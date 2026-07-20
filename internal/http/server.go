@@ -37,6 +37,7 @@ type Dependencies struct {
 	Vault    delivery.Vault
 	Metrics  *observability.Metrics
 	Limits   *ratelimit.Registry
+	Users    auth.UserStore
 }
 
 type Server struct {
@@ -48,6 +49,7 @@ type Server struct {
 	vault     delivery.Vault
 	metrics   *observability.Metrics
 	limits    *ratelimit.Registry
+	users     auth.UserStore
 	templates *template.Template
 }
 
@@ -62,6 +64,9 @@ func New(deps Dependencies) *Server {
 		},
 		"statusClass": statusClass,
 		"eventLabel":  eventLabel,
+		"hasPermission": func(perms map[string]bool, permission string) bool {
+			return perms[permission]
+		},
 		"shortID": func(id uuid.UUID) string {
 			value := id.String()
 			if len(value) <= 8 {
@@ -80,6 +85,7 @@ func New(deps Dependencies) *Server {
 		vault:     deps.Vault,
 		metrics:   deps.Metrics,
 		limits:    deps.Limits,
+		users:     deps.Users,
 		templates: templates,
 	}
 }
@@ -103,12 +109,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/secrets/", s.handleSecretPage)
 	mux.HandleFunc("/admin/status", s.handleStatusPage)
 	mux.HandleFunc("/admin/help", s.handleHelpPage)
+	mux.HandleFunc("/admin/users", s.handleUsersPage)
+	mux.HandleFunc("/admin/users/new", s.handleNewUserPage)
+	mux.HandleFunc("/admin/users/", s.handleUserDetailPage)
+	mux.HandleFunc("/admin/account", s.handleAccountPage)
 	mux.HandleFunc("/s", s.handleRecipientPage)
 	mux.HandleFunc("/error", s.handleErrorPage)
 	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("/api/v1/me", s.handleMe)
+	mux.HandleFunc("/api/v1/me/password", s.handleChangePassword)
+	mux.HandleFunc("/api/v1/me/sessions", s.handleMySessions)
+	mux.HandleFunc("/api/v1/me/sessions/revoke-other", s.handleRevokeOtherSessions)
 	mux.HandleFunc("/api/v1/dashboard", s.handleDashboardAPI)
 	mux.HandleFunc("/api/v1/admin/cleanup", s.handleManualCleanup)
+	mux.HandleFunc("/api/v1/users", s.handleUsersAPI)
+	mux.HandleFunc("/api/v1/users/", s.handleUserAPI)
 	mux.HandleFunc("/api/v1/secret-links", s.handleSecretLinks)
 	mux.HandleFunc("/api/v1/secret-links/", s.handleSecretLinkByID)
 	mux.HandleFunc("/api/v1/secret-links/prepare", s.handlePrepare)
@@ -146,7 +162,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !s.requirePage(w, r, "secret:create") {
+	if !s.requirePage(w, r, "dashboard:read") {
 		return
 	}
 	stats, err := s.delivery.Dashboard(r.Context())
@@ -220,7 +236,7 @@ func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
-	if !s.requirePage(w, r, "secret:read-metadata") {
+	if !s.requirePage(w, r, "system:read") {
 		return
 	}
 	stats, err := s.delivery.Dashboard(r.Context())
@@ -232,10 +248,61 @@ func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {
-	if !s.requirePage(w, r, "secret:read-metadata") {
+	if !s.requirePage(w, r, "api-docs:read") {
 		return
 	}
 	s.render(w, "help.html", s.adminData(r, map[string]any{"Title": "Help"}))
+}
+
+func (s *Server) handleUsersPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/users" {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requirePage(w, r, "user:manage") {
+		return
+	}
+	users, err := s.users.ListUsers(r.Context())
+	if err != nil {
+		s.logger.Warn("user list query failed", "error", err)
+	}
+	s.render(w, "users.html", s.adminData(r, map[string]any{"Title": "Users", "Users": users}))
+}
+
+func (s *Server) handleNewUserPage(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePage(w, r, "user:manage") {
+		return
+	}
+	s.render(w, "user_new.html", s.adminData(r, map[string]any{"Title": "Create User"}))
+}
+
+func (s *Server) handleUserDetailPage(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePage(w, r, "user:manage") {
+		return
+	}
+	id, err := uuid.Parse(strings.TrimPrefix(r.URL.Path, "/admin/users/"))
+	if err != nil {
+		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "User metadata is unavailable."})
+		return
+	}
+	user, err := s.users.UserByID(r.Context(), id)
+	if err != nil {
+		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "User metadata is unavailable."})
+		return
+	}
+	s.render(w, "user_detail.html", s.adminData(r, map[string]any{"Title": "User Detail", "User": user}))
+}
+
+func (s *Server) handleAccountPage(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requirePageSession(w, r, "account:manage")
+	if !ok {
+		return
+	}
+	sessions, err := s.auth.ListSessions(r.Context(), session)
+	if err != nil {
+		s.logger.Warn("session list query failed", "user_id", session.UserID, "error", err)
+	}
+	s.render(w, "account.html", s.adminData(r, map[string]any{"Title": "Account", "Sessions": sessions}))
 }
 
 func (s *Server) handleRecipientPage(w http.ResponseWriter, r *http.Request) {
@@ -256,39 +323,59 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ipHash := middleware.IPHash(s.cfg.RequestIPHashPepper, r)
-	if !s.limits.Login.Allow(ipHash) {
-		s.recordRateLimit("login")
-		s.recordLoginFailure()
-		s.writeError(w, delivery.CodeRateLimited, "Too many attempts. Try again later.", http.StatusTooManyRequests)
-		return
-	}
-
-	apiKey := ""
 	isJSON := strings.Contains(r.Header.Get("Content-Type"), "application/json")
+	login := ""
+	password := ""
 	if isJSON {
 		var body struct {
-			APIKey string `json:"api_key"`
+			Login    string `json:"login"`
+			Username string `json:"username"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
 		}
 		if !s.decodeJSON(w, r, 2048, &body) {
 			return
 		}
-		apiKey = body.APIKey
+		login = body.Login
+		if login == "" {
+			login = body.Username
+		}
+		if login == "" {
+			login = body.Email
+		}
+		password = body.Password
 	} else {
 		r.Body = http.MaxBytesReader(w, r.Body, 2048)
 		if err := r.ParseForm(); err != nil {
 			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
 			return
 		}
-		apiKey = r.Form.Get("api_key")
+		login = r.Form.Get("login")
+		if login == "" {
+			login = r.Form.Get("username")
+		}
+		password = r.Form.Get("password")
 	}
 
-	if !s.validAdminKey(apiKey) {
+	limitKey := ipHash + ":" + auth.NormalizeLogin(login)
+	if !s.limits.Login.Allow(limitKey) {
+		s.recordRateLimit("login")
+		s.recordLoginFailure()
+		s.writeError(w, delivery.CodeRateLimited, "Too many attempts. Try again later.", http.StatusTooManyRequests)
+		return
+	}
+	user, ok, err := auth.Authenticate(r.Context(), s.users, login, password)
+	if err != nil {
+		s.logger.Warn("login dependency failed", "error", err)
+		s.writeError(w, delivery.CodeDependencyUnavailable, "Dependency unavailable.", http.StatusServiceUnavailable)
+		return
+	}
+	if !ok {
 		s.recordLoginFailure()
 		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
-			ActorID:   "admin",
 			Type:      "auth.login_failed",
 			Result:    "unauthorized",
-			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			IPHash:    ipHash,
 			RequestID: middleware.RequestID(r.Context()),
 		})
 		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
@@ -297,23 +384,26 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if _, err := r.Cookie(auth.CookieName); err == nil {
 		s.auth.Destroy(w, r)
 	}
-	session, err := s.auth.Create(w, "admin", adminPermissions())
+	session, err := s.auth.CreateForUser(r.Context(), w, user)
 	if err != nil {
 		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
 		return
 	}
+	if err := s.users.TouchLastLogin(r.Context(), user.ID); err != nil {
+		s.logger.Warn("last login update failed", "user_id", user.ID, "error", err)
+	}
 	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
-		ActorID:   "admin",
+		ActorID:   user.Username,
 		Type:      "auth.login_succeeded",
 		Result:    "success",
-		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		IPHash:    ipHash,
 		RequestID: middleware.RequestID(r.Context()),
 	})
 	if !isJSON {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "actor_id": "admin", "csrf_token": s.auth.CSRFToken(session)})
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "actor_id": user.Username, "role": user.Role, "csrf_token": s.auth.CSRFToken(session)})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -335,8 +425,284 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
 		return
 	}
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   session.Username,
+		Type:      "auth.logout",
+		Result:    "success",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
 	s.auth.Destroy(w, r)
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	session, ok := s.auth.FromRequest(r)
+	if !ok {
+		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"id":       session.UserID,
+		"username": session.Username,
+		"email":    session.Email,
+		"role":     session.Role,
+	})
+}
+
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	session, ok := s.requireAPI(w, r, "account:manage")
+	if !ok {
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if !s.decodeJSON(w, r, 4096, &body) {
+		return
+	}
+	user, valid, err := auth.Authenticate(r.Context(), s.users, session.Username, body.CurrentPassword)
+	if err != nil {
+		s.writeError(w, delivery.CodeDependencyUnavailable, "Dependency unavailable.", http.StatusServiceUnavailable)
+		return
+	}
+	if !valid || user.ID != session.UserID {
+		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+		return
+	}
+	if err := auth.ValidateUserPassword(body.NewPassword, s.cfg.AppEnv != "development"); err != nil {
+		s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+		return
+	}
+	if err := s.users.SetPassword(r.Context(), session.UserID, body.NewPassword, false); err != nil {
+		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+		return
+	}
+	if err := s.auth.RevokeOtherSessions(r.Context(), auth.Session{ID: session.Token, UserID: session.UserID}); err != nil {
+		s.logger.Warn("other session revocation failed", "user_id", session.UserID, "error", err)
+	}
+	s.auth.Destroy(w, r)
+	newSession, err := s.auth.CreateForUser(r.Context(), w, user)
+	if err != nil {
+		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+		return
+	}
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   session.Username,
+		Type:      "auth.password_changed",
+		Result:    "success",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "csrf_token": s.auth.CSRFToken(newSession)})
+}
+
+func (s *Server) handleMySessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	session, ok := s.auth.FromRequest(r)
+	if !ok {
+		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+		return
+	}
+	sessions, err := s.auth.ListSessions(r.Context(), session)
+	if err != nil {
+		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"items": sessions})
+}
+
+func (s *Server) handleRevokeOtherSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	session, ok := s.requireAPI(w, r, "account:manage")
+	if !ok {
+		return
+	}
+	if err := s.auth.RevokeOtherSessions(r.Context(), auth.Session{ID: session.Token, UserID: session.UserID}); err != nil {
+		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+		return
+	}
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   session.Username,
+		Type:      "session.revoked",
+		Result:    "other_sessions",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleUsersAPI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api/v1/users" {
+		http.NotFound(w, r)
+		return
+	}
+	actor, ok := s.requireAPI(w, r, "user:manage")
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		users, err := s.users.ListUsers(r.Context())
+		if err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"items": users})
+	case http.MethodPost:
+		var req struct {
+			Username            string `json:"username"`
+			Email               string `json:"email"`
+			Password            string `json:"password"`
+			Role                string `json:"role"`
+			Status              string `json:"status"`
+			ForcePasswordChange bool   `json:"force_password_change"`
+		}
+		if !s.decodeJSON(w, r, 8192, &req) {
+			return
+		}
+		if err := auth.ValidateUserPassword(req.Password, s.cfg.AppEnv != "development"); err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		user, err := s.users.CreateUser(r.Context(), auth.UserCreate{
+			Username:            req.Username,
+			Email:               req.Email,
+			Password:            req.Password,
+			Role:                req.Role,
+			Status:              req.Status,
+			ForcePasswordChange: req.ForcePasswordChange,
+		})
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+			ActorID:   actor.ActorID,
+			Type:      "user.created",
+			Result:    "success",
+			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			RequestID: middleware.RequestID(r.Context()),
+		})
+		s.writeJSON(w, http.StatusCreated, user)
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleUserAPI(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAPI(w, r, "user:manage")
+	if !ok {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
+	idPart := path
+	action := ""
+	if before, after, ok := strings.Cut(path, "/"); ok {
+		idPart = before
+		action = after
+	}
+	id, err := uuid.Parse(idPart)
+	if err != nil {
+		s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+		return
+	}
+	switch {
+	case action == "" && r.Method == http.MethodGet:
+		user, err := s.users.UserByID(r.Context(), id)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, user)
+	case action == "" && r.Method == http.MethodPatch:
+		var req struct {
+			Username            *string `json:"username"`
+			Email               *string `json:"email"`
+			Role                *string `json:"role"`
+			Status              *string `json:"status"`
+			ForcePasswordChange *bool   `json:"force_password_change"`
+		}
+		if !s.decodeJSON(w, r, 8192, &req) {
+			return
+		}
+		user, err := s.users.UpdateUser(r.Context(), id, auth.UserPatch{
+			Username:            req.Username,
+			Email:               req.Email,
+			Role:                req.Role,
+			Status:              req.Status,
+			ForcePasswordChange: req.ForcePasswordChange,
+		})
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+			ActorID:   actor.ActorID,
+			Type:      "user.updated",
+			Result:    "success",
+			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			RequestID: middleware.RequestID(r.Context()),
+		})
+		s.writeJSON(w, http.StatusOK, user)
+	case action == "reset-password" && r.Method == http.MethodPost:
+		var req struct {
+			Password            string `json:"password"`
+			ForcePasswordChange bool   `json:"force_password_change"`
+		}
+		if !s.decodeJSON(w, r, 8192, &req) {
+			return
+		}
+		if err := auth.ValidateUserPassword(req.Password, s.cfg.AppEnv != "development"); err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		if err := s.users.SetPassword(r.Context(), id, req.Password, req.ForcePasswordChange); err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+			ActorID:   actor.ActorID,
+			Type:      "user.password_reset",
+			Result:    "success",
+			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			RequestID: middleware.RequestID(r.Context()),
+		})
+		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	case action == "disable" && r.Method == http.MethodPost:
+		user, err := s.users.SetUserStatus(r.Context(), id, auth.StatusDisabled)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{ActorID: actor.ActorID, Type: "user.disabled", Result: "success", IPHash: middleware.IPHash(s.cfg.RequestIPHashPepper, r), RequestID: middleware.RequestID(r.Context())})
+		s.writeJSON(w, http.StatusOK, user)
+	case action == "enable" && r.Method == http.MethodPost:
+		user, err := s.users.SetUserStatus(r.Context(), id, auth.StatusActive)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{ActorID: actor.ActorID, Type: "user.enabled", Result: "success", IPHash: middleware.IPHash(s.cfg.RequestIPHashPepper, r), RequestID: middleware.RequestID(r.Context())})
+		s.writeJSON(w, http.StatusOK, user)
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleSecretLinks(w http.ResponseWriter, r *http.Request) {
@@ -539,18 +905,28 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) requirePage(w http.ResponseWriter, r *http.Request, permission string) bool {
+	_, ok := s.requirePageSession(w, r, permission)
+	return ok
+}
+
+func (s *Server) requirePageSession(w http.ResponseWriter, r *http.Request, permission string) (auth.Session, bool) {
 	session, ok := s.auth.FromRequest(r)
 	if !ok || !session.Permissions[permission] {
 		http.Redirect(w, r, "/login", http.StatusFound)
-		return false
+		return auth.Session{}, false
 	}
-	return true
+	return session, true
 }
 
 type actor struct {
 	ActorID     string
 	Permissions map[string]bool
 	Bearer      bool
+	UserID      uuid.UUID
+	Username    string
+	Email       string
+	Role        string
+	Token       string
 }
 
 func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission string) (actor, bool) {
@@ -563,7 +939,15 @@ func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission s
 			s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
 			return actor{}, false
 		}
-		return actor{ActorID: session.ActorID, Permissions: session.Permissions}, true
+		return actor{
+			ActorID:     session.ActorID,
+			Permissions: session.Permissions,
+			UserID:      session.UserID,
+			Username:    session.Username,
+			Email:       session.Email,
+			Role:        session.Role,
+			Token:       session.ID,
+		}, true
 	}
 	s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
 	return actor{}, false
@@ -630,7 +1014,7 @@ func bearerToken(r *http.Request) string {
 }
 
 func adminPermissions() []string {
-	return []string{"secret:create", "secret:read-metadata", "secret:revoke"}
+	return auth.PermissionsForRole(auth.RoleAdmin)
 }
 
 func permissionsMap(values []string) map[string]bool {
@@ -673,8 +1057,13 @@ func (s *Server) adminData(r *http.Request, values map[string]any) map[string]an
 	values["Env"] = s.cfg.AppEnv
 	values["CurrentPath"] = r.URL.Path
 	values["ActorID"] = "admin"
+	values["Role"] = "admin"
+	values["Permissions"] = permissionsMap(adminPermissions())
 	if session, ok := s.auth.FromRequest(r); ok {
 		values["CSRFToken"] = s.auth.CSRFToken(session)
+		values["ActorID"] = session.Username
+		values["Role"] = session.Role
+		values["Permissions"] = session.Permissions
 	}
 	return values
 }

@@ -15,54 +15,60 @@ const (
 )
 
 type Config struct {
-	AppEnv              string
-	AppAddr             string
-	AppBaseURL          string
-	DatabaseURL         string
-	VaultAddr           string
-	VaultToken          string
-	VaultTransitKey     string
-	AdminAPIKey         string
-	TokenHMACPepper     string
-	SessionSecret       string
-	CSRFSecret          string
-	SessionTTL          time.Duration
-	SessionIdleTimeout  time.Duration
-	CookieSecure        bool
-	MaxSecretTTL        time.Duration
-	DefaultSecretTTL    time.Duration
-	ConsumingLeaseTTL   time.Duration
-	CleanupInterval     time.Duration
-	ConsumedRetention   time.Duration
-	ExpiredRetention    time.Duration
-	RevokedRetention    time.Duration
-	AuditRetention      time.Duration
-	LogLevel            string
-	MetricsEnabled      bool
-	MigrationsDir       string
-	MaxSecretBytes      int64
-	RequestIPHashPepper string
-	EnableHSTS          bool
+	AppEnv                 string
+	AppAddr                string
+	AppBaseURL             string
+	DatabaseURL            string
+	VaultAddr              string
+	VaultToken             string
+	VaultTransitKey        string
+	AdminAPIKey            string
+	TokenHMACPepper        string
+	SessionSecret          string
+	CSRFSecret             string
+	BootstrapAdminUsername string
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
+	SessionTTL             time.Duration
+	SessionIdleTimeout     time.Duration
+	CookieSecure           bool
+	MaxSecretTTL           time.Duration
+	DefaultSecretTTL       time.Duration
+	ConsumingLeaseTTL      time.Duration
+	CleanupInterval        time.Duration
+	ConsumedRetention      time.Duration
+	ExpiredRetention       time.Duration
+	RevokedRetention       time.Duration
+	AuditRetention         time.Duration
+	LogLevel               string
+	MetricsEnabled         bool
+	MigrationsDir          string
+	MaxSecretBytes         int64
+	RequestIPHashPepper    string
+	EnableHSTS             bool
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		AppEnv:              getenv("APP_ENV", "development"),
-		AppAddr:             getenv("APP_ADDR", ":8080"),
-		AppBaseURL:          strings.TrimRight(getenv("APP_BASE_URL", "http://localhost:8080"), "/"),
-		DatabaseURL:         getenv("DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),
-		VaultAddr:           getenv("VAULT_ADDR", "http://localhost:8200"),
-		VaultToken:          getenv("VAULT_TOKEN", "root"),
-		VaultTransitKey:     getenv("VAULT_TRANSIT_KEY", "secureshare"),
-		AdminAPIKey:         getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
-		TokenHMACPepper:     getenv("TOKEN_HMAC_PEPPER", "replace-with-a-long-random-value"),
-		SessionSecret:       getenv("SESSION_SECRET", "replace-with-a-long-random-value"),
-		CSRFSecret:          getenv("CSRF_SECRET", "replace-with-a-long-random-value"),
-		LogLevel:            strings.ToLower(getenv("LOG_LEVEL", "info")),
-		MetricsEnabled:      getenvBool("METRICS_ENABLED", true),
-		MigrationsDir:       getenv("MIGRATIONS_DIR", "migrations"),
-		MaxSecretBytes:      getenvInt64("MAX_SECRET_BYTES", DefaultMaxSecretBytes),
-		RequestIPHashPepper: getenv("REQUEST_IP_HASH_PEPPER", ""),
+		AppEnv:                 getenv("APP_ENV", "development"),
+		AppAddr:                getenv("APP_ADDR", ":8080"),
+		AppBaseURL:             strings.TrimRight(getenv("APP_BASE_URL", "http://localhost:8080"), "/"),
+		DatabaseURL:            getenv("DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),
+		VaultAddr:              getenv("VAULT_ADDR", "http://localhost:8200"),
+		VaultToken:             getenv("VAULT_TOKEN", "root"),
+		VaultTransitKey:        getenv("VAULT_TRANSIT_KEY", "secureshare"),
+		AdminAPIKey:            getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
+		TokenHMACPepper:        getenv("TOKEN_HMAC_PEPPER", "replace-with-a-long-random-value"),
+		SessionSecret:          getenv("SESSION_SECRET", "replace-with-a-long-random-value"),
+		CSRFSecret:             getenv("CSRF_SECRET", "replace-with-a-long-random-value"),
+		BootstrapAdminUsername: getenv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
+		BootstrapAdminEmail:    getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@example.local"),
+		BootstrapAdminPassword: getenv("BOOTSTRAP_ADMIN_PASSWORD", "change-me-now"),
+		LogLevel:               strings.ToLower(getenv("LOG_LEVEL", "info")),
+		MetricsEnabled:         getenvBool("METRICS_ENABLED", true),
+		MigrationsDir:          getenv("MIGRATIONS_DIR", "migrations"),
+		MaxSecretBytes:         getenvInt64("MAX_SECRET_BYTES", DefaultMaxSecretBytes),
+		RequestIPHashPepper:    getenv("REQUEST_IP_HASH_PEPPER", ""),
 	}
 
 	var err error
@@ -146,6 +152,17 @@ func (c Config) Validate() error {
 	if c.MaxSecretBytes <= 0 || c.MaxSecretBytes > 1024*1024 {
 		errs = append(errs, errors.New("MAX_SECRET_BYTES must be between 1 byte and 1 MiB"))
 	}
+	if c.BootstrapAdminUsername != "" || c.BootstrapAdminEmail != "" || c.BootstrapAdminPassword != "" {
+		if strings.TrimSpace(c.BootstrapAdminUsername) == "" {
+			errs = append(errs, errors.New("BOOTSTRAP_ADMIN_USERNAME is required when bootstrap admin is configured"))
+		}
+		if strings.TrimSpace(c.BootstrapAdminEmail) == "" || !strings.Contains(c.BootstrapAdminEmail, "@") {
+			errs = append(errs, errors.New("BOOTSTRAP_ADMIN_EMAIL must be a valid email-like value"))
+		}
+		if strings.TrimSpace(c.BootstrapAdminPassword) == "" {
+			errs = append(errs, errors.New("BOOTSTRAP_ADMIN_PASSWORD is required when bootstrap admin is configured"))
+		}
+	}
 
 	if c.AppEnv != "development" {
 		if len(c.AdminAPIKey) < 32 || c.AdminAPIKey == "change-me" {
@@ -163,9 +180,25 @@ func (c Config) Validate() error {
 		if !c.CookieSecure {
 			errs = append(errs, errors.New("COOKIE_SECURE must be true outside development"))
 		}
+		if isWeakBootstrapPassword(c.BootstrapAdminPassword) {
+			errs = append(errs, errors.New("BOOTSTRAP_ADMIN_PASSWORD must be strong outside development"))
+		}
 	}
 
 	return errors.Join(errs...)
+}
+
+func isWeakBootstrapPassword(password string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(password))
+	if len(trimmed) < 12 {
+		return true
+	}
+	switch trimmed {
+	case "change-me", "change-me-now", "password", "password123", "admin", "admin123", "secureshare":
+		return true
+	default:
+		return strings.Contains(trimmed, "replace-with")
+	}
 }
 
 func getenv(key, fallback string) string {

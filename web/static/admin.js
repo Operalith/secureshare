@@ -80,16 +80,18 @@
       if (error) error.textContent = "";
       const submit = form.querySelector('button[type="submit"]');
       setButtonLoading(submit, true);
-      const apiKey = String(new FormData(form).get("api_key") || "");
+      const data = new FormData(form);
+      const login = String(data.get("login") || "");
+      const password = String(data.get("password") || "");
       try {
         const response = await fetch("/api/v1/auth/login", {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ api_key: apiKey }),
+          body: JSON.stringify({ login, password }),
         });
         if (!response.ok) {
-          if (error) error.textContent = "The API key was not accepted.";
+          if (error) error.textContent = "The username, email, or password was not accepted.";
           return;
         }
         window.location.assign("/admin");
@@ -323,10 +325,149 @@
     });
   }
 
+  function setupUserManagement() {
+    const createForm = qs("[data-user-create]");
+    createForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.submitter || createForm.querySelector('button[type="submit"]');
+      const error = qs("[data-form-error]", createForm);
+      if (error) error.textContent = "";
+      const data = new FormData(createForm);
+      const payload = {
+        username: String(data.get("username") || ""),
+        email: String(data.get("email") || ""),
+        password: String(data.get("password") || ""),
+        role: String(data.get("role") || "developer"),
+        status: String(data.get("status") || "active"),
+        force_password_change: data.get("force_password_change") === "on",
+      };
+      setButtonLoading(submit, true);
+      try {
+        const response = await fetch("/api/v1/users", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          if (error) error.textContent = "User could not be created.";
+          return;
+        }
+        const user = await response.json();
+        toast("User created.");
+        window.location.assign(`/admin/users/${user.id}`);
+      } finally {
+        setButtonLoading(submit, false);
+      }
+    });
+
+    const updateForm = qs("[data-user-update]");
+    updateForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const id = updateForm.dataset.userId;
+      const data = new FormData(updateForm);
+      const response = await fetch(`/api/v1/users/${id}`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          username: String(data.get("username") || ""),
+          email: String(data.get("email") || ""),
+          role: String(data.get("role") || "developer"),
+          status: String(data.get("status") || "active"),
+          force_password_change: data.get("force_password_change") === "on",
+        }),
+      });
+      toast(response.ok ? "User updated." : "User could not be updated.");
+    });
+
+    const resetForm = qs("[data-user-reset-password]");
+    resetForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const id = resetForm.dataset.userId;
+      const data = new FormData(resetForm);
+      const response = await fetch(`/api/v1/users/${id}/reset-password`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          password: String(data.get("password") || ""),
+          force_password_change: data.get("force_password_change") === "on",
+        }),
+      });
+      if (response.ok) resetForm.reset();
+      toast(response.ok ? "Password reset." : "Password could not be reset.");
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-user-action]");
+      if (!button) return;
+      const id = button.dataset.userId;
+      const action = button.dataset.userAction;
+      const ok = await confirmAction(`${action === "disable" ? "Disable" : "Enable"} this user?`, "User access changes take effect immediately.");
+      if (!ok) return;
+      button.disabled = true;
+      const response = await fetch(`/api/v1/users/${id}/${action}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: "{}",
+      });
+      toast(response.ok ? "User updated." : "User update failed.");
+      if (response.ok) window.location.reload();
+    });
+  }
+
+  function setupAccount() {
+    const form = qs("[data-change-password]");
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = qs("[data-form-error]", form);
+      if (error) error.textContent = "";
+      const submit = event.submitter || form.querySelector('button[type="submit"]');
+      const data = new FormData(form);
+      setButtonLoading(submit, true);
+      try {
+        const response = await fetch("/api/v1/me/password", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({
+            current_password: String(data.get("current_password") || ""),
+            new_password: String(data.get("new_password") || ""),
+          }),
+        });
+        if (!response.ok) {
+          if (error) error.textContent = "Password could not be changed.";
+          return;
+        }
+        toast("Password changed. Your session was rotated.");
+        form.reset();
+      } finally {
+        setButtonLoading(submit, false);
+      }
+    });
+
+    qs("[data-revoke-other-sessions]")?.addEventListener("click", async () => {
+      const ok = await confirmAction("Revoke other sessions?", "Other browser sessions for this account will be invalidated.");
+      if (!ok) return;
+      const response = await fetch("/api/v1/me/sessions/revoke-other", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: "{}",
+      });
+      toast(response.ok ? "Other sessions revoked." : "Session revocation failed.");
+      if (response.ok) window.location.reload();
+    });
+  }
+
   setupTheme();
   setupNavigation();
   setupSecretToggles();
   setupLogin();
   setupCreateSecret();
   setupRevokeButtons();
+  setupUserManagement();
+  setupAccount();
 })();

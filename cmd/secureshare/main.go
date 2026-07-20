@@ -53,9 +53,14 @@ func main() {
 	}
 
 	repo := delivery.NewRepository(db)
+	users := auth.NewRepository(db)
+	if err := auth.BootstrapAdmin(ctx, users, cfg); err != nil {
+		logger.Error("bootstrap admin failed", "error", err)
+		os.Exit(1)
+	}
 	metrics := observability.New()
 	secrets := delivery.NewService(cfg, repo, vaultClient, metrics, logger)
-	sessions := auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, cfg.CookieSecure)
+	sessions := auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, cfg.CookieSecure).WithStore(users)
 	limiters := ratelimit.NewRegistry()
 	app := server.New(server.Dependencies{
 		Config:   cfg,
@@ -66,6 +71,7 @@ func main() {
 		Vault:    vaultClient,
 		Metrics:  metrics,
 		Limits:   limiters,
+		Users:    users,
 	})
 
 	cleaner := cleanup.NewWorker(cfg, repo, metrics, logger)

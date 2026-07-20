@@ -10,13 +10,13 @@ All responses use JSON for API endpoints.
 
 ## Authentication
 
-Internal management endpoints accept:
+Internal management endpoints currently accept the deprecated legacy admin key for machine-to-machine compatibility:
 
 ```http
 Authorization: Bearer <admin-api-key>
 ```
 
-The web UI login uses the same key and stores only an opaque HTTP-only SameSite session cookie.
+The web UI uses PostgreSQL-backed users and stores only an opaque HTTP-only SameSite session cookie. New integrations should move to scoped API clients once available.
 Browser session requests that change state must include the CSRF token from the page meta tag as `X-CSRF-Token` or form field `csrf_token`. Bearer-token API requests are exempt from browser CSRF protection.
 
 JSON endpoints require:
@@ -59,13 +59,27 @@ curl -sS -X POST http://localhost:8080/api/v1/auth/login \
 
 Form login is used by `/login`.
 
-JSON login returns the CSRF token for browser clients:
+JSON login accepts `login` plus `password` and returns the CSRF token for browser clients:
 
 ```json
 {
   "ok": true,
   "actor_id": "admin",
+  "role": "admin",
   "csrf_token": "session-bound-token"
+}
+```
+
+## GET /api/v1/me
+
+Returns the current browser-authenticated user:
+
+```json
+{
+  "id": "uuid",
+  "username": "developer1",
+  "email": "developer1@example.local",
+  "role": "developer"
 }
 ```
 

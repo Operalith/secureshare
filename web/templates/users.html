@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Users - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation">
+        <a href="/admin">Dashboard</a>
+        <a href="/admin/secrets/new">Create Secret</a>
+        <a href="/admin/secrets">Secret Links</a>
+        <a class="active" href="/admin/users">Users</a>
+        <a href="/admin/account">Account</a>
+        <a href="/admin/status">System Status</a>
+        <a href="/admin/help">Help</a>
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Access control</p><h1>Users</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">PostgreSQL-backed identities</p><h2>User directory</h2></div>
+            <a class="button-link compact" href="/admin/users/new">Create user</a>
+          </div>
+          {{ if .Users }}
+          <div class="responsive-table">
+            <table>
+              <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Created</th><th>Actions</th></tr></thead>
+              <tbody>
+                {{ range .Users }}
+                <tr>
+                  <td data-label="Username"><a href="/admin/users/{{ .ID }}">{{ .Username }}</a></td>
+                  <td data-label="Email">{{ .Email }}</td>
+                  <td data-label="Role"><span class="badge neutral">{{ .Role }}</span></td>
+                  <td data-label="Status"><span class="badge {{ if eq .Status "active" }}success{{ else }}danger{{ end }}">{{ .Status }}</span></td>
+                  <td data-label="Last login">{{ formatOptionalTime .LastLoginAt }}</td>
+                  <td data-label="Created">{{ formatTime .CreatedAt }}</td>
+                  <td data-label="Actions" class="table-actions">
+                    <a href="/admin/users/{{ .ID }}">View</a>
+                    {{ if eq .Status "active" }}
+                    <button type="button" class="danger compact" data-user-action="disable" data-user-id="{{ .ID }}">Disable</button>
+                    {{ else }}
+                    <button type="button" class="compact" data-user-action="enable" data-user-id="{{ .ID }}">Enable</button>
+                    {{ end }}
+                  </td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+          {{ else }}
+          <div class="empty-state"><strong>No users yet</strong><span>Create the first local admin user.</span></div>
+          {{ end }}
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

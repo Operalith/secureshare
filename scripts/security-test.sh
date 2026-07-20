@@ -11,6 +11,8 @@ fi
 
 BASE_URL="${APP_BASE_URL:-http://localhost:8080}"
 ADMIN_KEY="${SECURESHARE_ADMIN_API_KEY:-change-me}"
+ADMIN_USERNAME="${BOOTSTRAP_ADMIN_USERNAME:-admin}"
+ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}"
 CANARY="security-canary-$(date +%s)-$$"
 
 tmpdir="$(mktemp -d)"
@@ -85,11 +87,11 @@ wait_ready
 unauth="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links" -H "Content-Type: application/json" --data '{"secret":"blocked"}')"
 assert_status "$(status_of "${unauth}")" "401" "unauthorized create"
 
-bad_login="$(request_with_status -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" --data '{"api_key":"wrong"}')"
+bad_login="$(request_with_status -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" --data '{"login":"admin","password":"wrong"}')"
 assert_status "$(status_of "${bad_login}")" "401" "invalid admin login"
 
 cookie_jar="${tmpdir}/cookies.txt"
-login="$(request_with_status -c "${cookie_jar}" -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" --data "{\"api_key\":\"${ADMIN_KEY}\"}")"
+login="$(request_with_status -c "${cookie_jar}" -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" --data "{\"login\":\"${ADMIN_USERNAME}\",\"password\":\"${ADMIN_PASSWORD}\"}")"
 assert_status "$(status_of "${login}")" "200" "valid login"
 csrf_token="$(body_of "${login}" | json_get csrf_token)"
 if [[ -z "${csrf_token}" ]]; then

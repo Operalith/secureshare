@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create User - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation"><a href="/admin">Dashboard</a><a href="/admin/secrets/new">Create Secret</a><a href="/admin/secrets">Secret Links</a><a class="active" href="/admin/users">Users</a><a href="/admin/account">Account</a><a href="/admin/status">System Status</a><a href="/admin/help">Help</a></nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Access control</p><h1>Create user</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="panel form-section">
+          <form class="form-stack" data-user-create>
+            <div class="form-grid">
+              <label>Username<input name="username" maxlength="100" autocomplete="off" required></label>
+              <label>Email<input type="email" name="email" maxlength="255" autocomplete="off" required></label>
+              <label>Role<select name="role"><option value="developer">Developer</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+              <label>Status<select name="status"><option value="active">Active</option><option value="disabled">Disabled</option></select></label>
+              <label class="span-two">Initial password<span class="input-with-action"><input type="password" name="password" autocomplete="new-password" required data-secret-input><button type="button" class="ghost compact" data-toggle-secret>Show</button></span></label>
+              <label class="checkbox-line span-two"><input type="checkbox" name="force_password_change"> Force password change at next sign-in</label>
+            </div>
+            <p class="form-error" role="alert" data-form-error></p>
+            <div class="actions"><button type="submit" data-loading-text="Creating...">Create user</button><a class="button-link secondary-link" href="/admin/users">Cancel</a></div>
+          </form>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

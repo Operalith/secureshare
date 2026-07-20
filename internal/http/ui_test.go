@@ -26,7 +26,7 @@ func TestLoginPageRendering(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
 	body := rec.Body.String()
-	for _, want := range []string{"SecureShare", "Admin sign in", "data-login-form", "Show"} {
+	for _, want := range []string{"SecureShare", "Admin sign in", "Username or email", "data-login-form", "Show"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("login page missing %q", want)
 		}
@@ -36,7 +36,7 @@ func TestLoginPageRendering(t *testing.T) {
 func TestAdminPagesRendering(t *testing.T) {
 	app := testServer()
 	cookie := loginCookie(t, app)
-	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/status", "/admin/help"} {
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/account", "/admin/status", "/admin/help"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.AddCookie(cookie)
@@ -114,20 +114,31 @@ func TestSecurityHeadersStillApplyToUIPages(t *testing.T) {
 
 func loginCookie(t *testing.T, app *Server) *http.Cookie {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"api_key":"change-me"}`))
+	cookie, _ := loginSession(t, app, "admin", "change-me-now")
+	return cookie
+}
+
+func loginSession(t *testing.T, app *Server, login, password string) (*http.Cookie, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"`+login+`","password":"`+password+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	csrfToken, _ := body["csrf_token"].(string)
 	for _, cookie := range rec.Result().Cookies() {
 		if cookie.Name == auth.CookieName {
-			return cookie
+			return cookie, csrfToken
 		}
 	}
 	t.Fatal("login did not set session cookie")
-	return nil
+	return nil, ""
 }
 
 func testServer() *Server {
@@ -146,13 +157,24 @@ func testServer() *Server {
 		ConsumingLeaseTTL:   30 * time.Second,
 		MaxSecretBytes:      config.DefaultMaxSecretBytes,
 	}
+	users := auth.NewMemoryStore()
+	if _, err := users.CreateUser(context.Background(), auth.UserCreate{
+		Username: "admin",
+		Email:    "admin@example.local",
+		Password: "change-me-now",
+		Role:     auth.RoleAdmin,
+		Status:   auth.StatusActive,
+	}); err != nil {
+		panic(err)
+	}
 	return New(Dependencies{
 		Config:   cfg,
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false),
+		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false).WithStore(users),
 		Delivery: delivery.NewService(cfg, &uiStore{}, &uiVault{}, observability.New(), slog.Default()),
 		Metrics:  observability.New(),
 		Limits:   ratelimit.NewRegistry(),
+		Users:    users,
 	})
 }
 
@@ -304,4 +326,93 @@ func TestInvalidJSONContentTypeRejected(t *testing.T) {
 	if rec.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("invalid content type = %d, want 415", rec.Code)
 	}
+}
+
+func TestCurrentUserAndViewerRoleEnforcement(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"role":"admin"`) {
+		t.Fatalf("current user response missing admin role: %s", rec.Body.String())
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"username":"viewer1","email":"viewer1@example.local","password":"viewer passphrase","role":"viewer"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-CSRF-Token", csrf)
+	createReq.AddCookie(cookie)
+	createRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create viewer = %d, want 201: %s", createRec.Code, createRec.Body.String())
+	}
+
+	viewerCookie, viewerCSRF := loginSession(t, app, "viewer1", "viewer passphrase")
+	blocked := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"blocked","expires_in_seconds":900}`))
+	blocked.Header.Set("Content-Type", "application/json")
+	blocked.Header.Set("X-CSRF-Token", viewerCSRF)
+	blocked.AddCookie(viewerCookie)
+	blockedRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(blockedRec, blocked)
+	if blockedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("viewer create = %d, want 401", blockedRec.Code)
+	}
+}
+
+func TestUserManagementDisableAndPasswordReset(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"username":"developer1","email":"developer1@example.local","password":"developer passphrase","role":"developer"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-CSRF-Token", csrf)
+	createReq.AddCookie(cookie)
+	createRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create developer = %d, want 201: %s", createRec.Code, createRec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+created.ID+"/disable", strings.NewReader(`{}`))
+	disableReq.Header.Set("Content-Type", "application/json")
+	disableReq.Header.Set("X-CSRF-Token", csrf)
+	disableReq.AddCookie(cookie)
+	disableRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable developer = %d, want 200: %s", disableRec.Code, disableRec.Body.String())
+	}
+	badLogin := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"developer1","password":"developer passphrase"}`))
+	badLogin.Header.Set("Content-Type", "application/json")
+	badRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(badRec, badLogin)
+	if badRec.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled login = %d, want 401", badRec.Code)
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+created.ID+"/enable", strings.NewReader(`{}`))
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableReq.Header.Set("X-CSRF-Token", csrf)
+	enableReq.AddCookie(cookie)
+	app.Handler().ServeHTTP(httptest.NewRecorder(), enableReq)
+	resetReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+created.ID+"/reset-password", strings.NewReader(`{"password":"new developer passphrase"}`))
+	resetReq.Header.Set("Content-Type", "application/json")
+	resetReq.Header.Set("X-CSRF-Token", csrf)
+	resetReq.AddCookie(cookie)
+	resetRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(resetRec, resetReq)
+	if resetRec.Code != http.StatusOK {
+		t.Fatalf("reset password = %d, want 200: %s", resetRec.Code, resetRec.Body.String())
+	}
+	loginSession(t, app, "developer1", "new developer passphrase")
 }

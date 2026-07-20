@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation"><a href="/admin">Dashboard</a><a href="/admin/secrets/new">Create Secret</a><a href="/admin/secrets">Secret Links</a><a href="/admin/users">Users</a><a class="active" href="/admin/account">Account</a><a href="/admin/status">System Status</a><a href="/admin/help">Help</a></nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Signed in</p><h1>{{ .ActorID }}</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .Role }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="panel form-section">
+          <div class="section-heading"><div><p class="eyebrow">Password</p><h2>Change password</h2></div></div>
+          <form class="form-stack" data-change-password>
+            <label>Current password<span class="input-with-action"><input type="password" name="current_password" autocomplete="current-password" required data-secret-input><button type="button" class="ghost compact" data-toggle-secret>Show</button></span></label>
+            <label>New password<span class="input-with-action"><input type="password" name="new_password" autocomplete="new-password" required data-secret-input><button type="button" class="ghost compact" data-toggle-secret>Show</button></span></label>
+            <p class="form-error" data-form-error role="alert"></p>
+            <div class="actions"><button type="submit" data-loading-text="Changing...">Change password</button></div>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Sessions</p><h2>Active sessions</h2></div><button type="button" class="secondary compact" data-revoke-other-sessions>Revoke other sessions</button></div>
+          {{ if .Sessions }}
+          <div class="responsive-table">
+            <table><thead><tr><th>Created</th><th>Last seen</th><th>Expires</th><th>Status</th></tr></thead><tbody>
+              {{ range .Sessions }}
+              <tr><td>{{ formatTime .CreatedAt }}</td><td>{{ formatTime .LastSeenAt }}</td><td>{{ formatTime .ExpiresAt }}</td><td>{{ if .Current }}Current{{ else if .RevokedAt }}Revoked{{ else }}Active{{ end }}</td></tr>
+              {{ end }}
+            </tbody></table>
+          </div>
+          {{ else }}
+          <div class="empty-state">Session metadata is unavailable for this test session.</div>
+          {{ end }}
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

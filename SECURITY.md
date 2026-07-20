@@ -78,9 +78,11 @@ The frontend does not use localStorage, sessionStorage, IndexedDB, cookies, serv
 
 HTTPS and HSTS are mandatory in production.
 
-## Admin Session and CSRF
+## Admin Users, Session and CSRF
 
-The browser admin UI uses an opaque HTTP-only SameSite cookie backed by in-memory server sessions. Session TTL, idle timeout, secure cookie behavior, and CSRF signing are configured with `SESSION_TTL`, `SESSION_IDLE_TIMEOUT`, `COOKIE_SECURE`, and `CSRF_SECRET`.
+The browser admin UI uses local PostgreSQL users and opaque HTTP-only SameSite cookies. Only a keyed session-token hash is stored in PostgreSQL. Session TTL, idle timeout, secure cookie behavior, and CSRF signing are configured with `SESSION_TTL`, `SESSION_IDLE_TIMEOUT`, `COOKIE_SECURE`, and `CSRF_SECRET`.
+
+The bootstrap administrator is created only when no users exist. Remove `BOOTSTRAP_ADMIN_PASSWORD` from production runtime configuration after initial setup.
 
 All authenticated browser state-changing actions require CSRF validation:
 
@@ -89,7 +91,7 @@ All authenticated browser state-changing actions require CSRF validation:
 - Manual cleanup
 - Logout
 
-Bearer-token API requests do not use browser CSRF protection.
+Bearer-token API requests do not use browser CSRF protection. The global admin API key is retained for compatibility and is deprecated for new integrations.
 
 ## Replay Prevention
 

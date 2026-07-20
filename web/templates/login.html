@@ -27,19 +27,23 @@
     <section class="auth-card" aria-labelledby="login-title">
       <div class="env-pill">{{ .Env }}</div>
       <h2 id="login-title">Admin sign in</h2>
-      <p class="muted">Use your internal admin API key to start a secure session.</p>
+      <p class="muted">Use your SecureShare username or email and password to start a secure session.</p>
       <form method="post" action="/api/v1/auth/login" class="form-stack" data-login-form>
         <label>
-          Admin API key
+          Username or email
+          <input name="login" autocomplete="username" required>
+        </label>
+        <label>
+          Password
           <span class="input-with-action">
-            <input type="password" name="api_key" autocomplete="current-password" required data-secret-input>
-            <button type="button" class="ghost compact" data-toggle-secret aria-label="Show API key">Show</button>
+            <input type="password" name="password" autocomplete="current-password" required data-secret-input>
+            <button type="button" class="ghost compact" data-toggle-secret aria-label="Show password">Show</button>
           </span>
         </label>
         <p class="form-error" role="alert" data-form-error></p>
         <button type="submit" data-loading-text="Signing in...">Sign in securely</button>
       </form>
-      <p class="fine-print">The API key is submitted only to SecureShare and is not stored by the browser UI.</p>
+      <p class="fine-print">The password is submitted only to SecureShare and is never stored by the browser UI. The legacy global API key is reserved for machine access.</p>
     </section>
   </main>
 </body>

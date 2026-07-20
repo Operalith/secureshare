@@ -19,7 +19,16 @@ The app is available at:
 http://localhost:8080
 ```
 
-Default local admin API key:
+Default local UI administrator:
+
+```text
+username: admin
+password: change-me-now
+```
+
+Change the bootstrap password before any non-local use. The bootstrap user is created only when the `users` table is empty.
+
+Default local legacy admin API key for machine requests:
 
 ```text
 change-me
@@ -93,7 +102,7 @@ Open the returned `url` in a browser. The recipient page strips the fragment fro
 ## UI Usage
 
 1. Visit `http://localhost:8080/login`.
-2. Enter the local admin API key.
+2. Enter the bootstrap username and password.
 3. Create a secret at `/admin/secrets/new`.
 4. Copy the generated one-time URL.
 5. Optionally revoke the link before it is viewed.
@@ -128,7 +137,7 @@ The security test covers unauthorized create, invalid login, CSRF rejection, pay
 For local development:
 
 1. Stop the stack: `docker compose down`.
-2. Generate new values for `SECURESHARE_ADMIN_API_KEY`, `TOKEN_HMAC_PEPPER`, `SESSION_SECRET`, and `REQUEST_IP_HASH_PEPPER`.
+2. Generate new values for `SECURESHARE_ADMIN_API_KEY`, `TOKEN_HMAC_PEPPER`, `SESSION_SECRET`, `CSRF_SECRET`, `REQUEST_IP_HASH_PEPPER`, and bootstrap admin password if the database is empty.
 3. Update `.env`.
 4. Restart: `docker compose up -d --build`.
 
@@ -140,7 +149,7 @@ Changing `TOKEN_HMAC_PEPPER` invalidates existing unconsumed links because token
 - Vault bootstrap fails: verify `VAULT_TOKEN` matches the Vault dev root token.
 - Create returns `503`: Vault is not ready or the Transit key is missing.
 - Consume returns `410`: the token is invalid, expired, revoked, locked, or already viewed. The response is intentionally generic.
-- Login fails locally: use the value of `SECURESHARE_ADMIN_API_KEY`, default `change-me`.
+- Login fails locally: use the bootstrap user, default `admin` / `change-me-now`, or reset the local database volume.
 
 ## Production Deployment
 
@@ -159,5 +168,5 @@ Known MVP limitations:
 
 - Sessions and rate limits are in memory.
 - Local Vault runs in dev mode.
-- There is one administrator role and one admin API key.
-- OIDC integration, Redis-backed limits, and shared session storage are not implemented yet.
+- UI authentication uses local PostgreSQL users and sessions; machine authentication still supports the deprecated global admin API key.
+- OIDC integration, API clients, Redis-backed limits, and shared session storage are not implemented yet.
