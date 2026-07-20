@@ -30,11 +30,14 @@ The Compose file also supplies development defaults, so `docker compose up -d --
 ## What It Does
 
 - Creates one-time secret links with optional title, description, recipient reference, password protection, and expiration.
+- Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, system status, help, and light/dark mode.
+- Provides safe admin APIs for dashboard statistics, paginated metadata listing, idempotent revoke, and manual cleanup.
 - Uses at least 256 bits of random token entropy.
 - Places the raw token in the URL fragment, for example `http://localhost:8080/s#token`, so browsers do not send it automatically in normal page requests.
 - Stores only `HMAC-SHA256(token_pepper, raw_token)` in PostgreSQL.
 - Encrypts secret payloads with Vault Transit before storage.
 - Atomically transitions records through `active`, `consuming`, `consumed`, `expired`, and `revoked`.
+- Records safe audit events for create, consume, revoke, expiration, password failure, and login outcomes.
 - Returns a generic `410 Gone` for invalid, expired, revoked, consumed, locked, or unknown tokens.
 
 ## Architecture
@@ -95,13 +98,14 @@ Open the returned `url` in a browser. The recipient page strips the fragment fro
 4. Copy the generated one-time URL.
 5. Optionally revoke the link before it is viewed.
 
-The admin interface never shows the original secret after creation.
+The admin interface never shows the original secret after creation. Historical rows never reconstruct delivery URLs because raw tokens are not stored.
 
 ## Tests
 
 ```bash
 make test
 make lint
+make security-test
 ```
 
 Integration tests expect the Compose stack:
@@ -116,6 +120,8 @@ Smoke test:
 ```bash
 ./scripts/smoke-test.sh
 ```
+
+The security test covers unauthorized create, invalid login, CSRF rejection, payload limits, invalid content types, first and second consume, concurrent consume, expired and revoked links, password throttling, security headers, cache prevention, and log leakage checks.
 
 ## Local Secret Rotation
 
@@ -136,7 +142,16 @@ Changing `TOKEN_HMAC_PEPPER` invalidates existing unconsumed links because token
 - Consume returns `410`: the token is invalid, expired, revoked, locked, or already viewed. The response is intentionally generic.
 - Login fails locally: use the value of `SECURESHARE_ADMIN_API_KEY`, default `change-me`.
 
-## Production Notes
+## Production Deployment
+
+Production guidance is in:
+
+- `docs/DEPLOYMENT.md`
+- `docs/PRODUCTION_CHECKLIST.md`
+- `docs/THREAT_MODEL.md`
+- `docker-compose.production.yml`
+- `deploy/nginx/secureshare.conf`
+- `deploy/vault/secureshare-policy.hcl`
 
 Use HTTPS only, HSTS, a real Vault cluster, short-lived Vault credentials, PostgreSQL TLS, strong environment secrets, external session storage for multiple replicas, Redis-backed rate limiting for multiple replicas, body redaction in APM/reverse proxies, log shipping, backups, container scanning, and restricted network access.
 
@@ -144,5 +159,5 @@ Known MVP limitations:
 
 - Sessions and rate limits are in memory.
 - Local Vault runs in dev mode.
-- There is one administrator role.
-- No OIDC integration yet, though auth code is organized for it.
+- There is one administrator role and one admin API key.
+- OIDC integration, Redis-backed limits, and shared session storage are not implemented yet.

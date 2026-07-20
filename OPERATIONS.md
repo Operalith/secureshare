@@ -14,13 +14,17 @@ Important values:
 - `SECURESHARE_ADMIN_API_KEY`: internal management credential.
 - `TOKEN_HMAC_PEPPER`: HMAC key for token lookup hashes.
 - `SESSION_SECRET`: signs session cookie IDs.
+- `CSRF_SECRET`: signs session-bound CSRF tokens.
+- `SESSION_TTL`: absolute session lifetime.
+- `SESSION_IDLE_TIMEOUT`: idle session lifetime.
+- `COOKIE_SECURE`: must be `true` outside development.
 - `REQUEST_IP_HASH_PEPPER`: hashes client IPs for logs and rate limits.
 - `MAX_SECRET_TTL`: maximum allowed expiration, default `168h`.
 - `DEFAULT_SECRET_TTL`: default expiration, default `24h`.
 - `CONSUMING_LEASE_TTL`: active consuming lease duration.
 - `CLEANUP_INTERVAL`: background cleanup cadence.
 
-Outside development, startup fails for weak admin keys, token peppers, and session secrets.
+Outside development, startup fails for weak admin keys, token peppers, session secrets, CSRF secrets, and insecure cookies.
 
 ## Health Checks
 
@@ -38,8 +42,16 @@ Prometheus metrics are exposed at `/metrics`:
 - `secureshare_secret_unavailable_total`
 - `secureshare_secret_revoked_total`
 - `secureshare_secret_expired_total`
+- `secureshare_login_failures_total`
+- `secureshare_csrf_failures_total`
+- `secureshare_rate_limit_events_total`
 - `secureshare_vault_errors_total`
+- `secureshare_vault_latency_seconds`
+- `secureshare_database_latency_seconds`
 - `secureshare_consume_duration_seconds`
+- `secureshare_cleanup_duration_seconds`
+- `secureshare_cleanup_deletions_total`
+- `secureshare_stale_lease_recovery_total`
 - `secureshare_active_secrets`
 
 Metrics avoid token IDs, merchant IDs, usernames, recipient references, and other high-cardinality labels.
@@ -79,8 +91,13 @@ Local Compose uses Vault dev mode only. Production must use:
 - `secureshare` key created
 - AppRole, Kubernetes Auth, or equivalent
 - Short-lived tokens
+- Token renewal and expiry monitoring
 - Audit devices
+- HA storage and documented unseal approach
+- Transit key rotation
 - Backup and restore procedures
+
+Use `deploy/vault/secureshare-policy.hcl` as the minimum app policy.
 
 ## Reverse Proxy Configuration
 
@@ -94,6 +111,8 @@ Required:
 - Reasonable request size limits
 - Trusted `X-Forwarded-For` handling
 
+See `deploy/nginx/secureshare.conf` for a concrete NGINX example with token-safe URI logging and no request-body logging.
+
 Example headers:
 
 ```http
@@ -104,6 +123,16 @@ X-Forwarded-Proto: https
 ## TLS and HSTS
 
 Production must be HTTPS-only. Set `APP_ENV=production` to emit HSTS from the app as an additional guard, but prefer enforcing HSTS at the public reverse proxy too.
+
+## Production Compose
+
+Local development uses `docker-compose.yml`. Production examples use:
+
+```bash
+docker compose --env-file /etc/secureshare/secureshare.env -f docker-compose.production.yml up -d --build
+```
+
+The production Compose file expects external PostgreSQL and Vault, binds the app to loopback by default, enables secure cookies, uses production mode, drops Linux capabilities, applies no-new-privileges, uses a read-only root filesystem, and caps container logs. Do not commit the production environment file.
 
 ## Scaling
 
@@ -121,6 +150,7 @@ The cleanup worker:
 - Marks expired active records.
 - Clears stale consuming leases.
 - Blanks ciphertext for consumed, expired, and revoked records after retention.
+- Deletes audit events after configured retention.
 
 Consumed payload retention defaults to zero, so ciphertext is blanked during successful consume.
 
@@ -141,4 +171,5 @@ Consumed payload retention defaults to zero, so ciphertext is blanked during suc
 4. Deploy the new image.
 5. Verify `/health/ready`.
 6. Run the smoke test.
-7. Watch metrics and logs for Vault errors, unavailable spikes, and latency.
+7. Run the security test.
+8. Watch metrics and logs for Vault errors, unavailable spikes, login failures, CSRF failures, cleanup duration, and latency.

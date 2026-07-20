@@ -68,7 +68,9 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 	if err != nil {
 		return CreateResponse{}, fmt.Errorf("%w: token hash failed", ErrInternal)
 	}
+	vaultStart := time.Now()
 	encrypted, err := s.vault.Encrypt(ctx, req.Secret)
+	s.observeVault(vaultStart, "encrypt")
 	if err != nil {
 		s.metrics.VaultErrors.Inc()
 		return CreateResponse{}, fmt.Errorf("%w: vault encrypt failed", ErrDependencyUnavailable)
@@ -93,7 +95,8 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 	if err != nil {
 		return CreateResponse{}, fmt.Errorf("%w: id generation failed", ErrInternal)
 	}
-	if err := s.store.Insert(ctx, InsertParams{
+	dbStart := time.Now()
+	err = s.store.Insert(ctx, InsertParams{
 		ID:                 id,
 		TokenHash:          tokenHash,
 		EncryptedPayload:   encrypted,
@@ -105,7 +108,9 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 		PasswordHash:       passwordHash,
 		MaxFailedAttempts:  maxFailed,
 		CreatedBy:          actorID,
-	}); err != nil {
+	})
+	s.observeDatabase(dbStart, "insert_delivery")
+	if err != nil {
 		return CreateResponse{}, fmt.Errorf("%w: insert delivery failed", ErrInternal)
 	}
 	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &id, ActorID: actorID, Type: "secret.created", Result: "success"})
@@ -119,23 +124,37 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 }
 
 func (s *Service) Metadata(ctx context.Context, id uuid.UUID) (Metadata, error) {
-	return s.store.Metadata(ctx, id)
+	start := time.Now()
+	result, err := s.store.Metadata(ctx, id)
+	s.observeDatabase(start, "metadata")
+	return result, err
 }
 
 func (s *Service) List(ctx context.Context, opts ListOptions) (ListResult, error) {
-	return s.store.List(ctx, opts)
+	start := time.Now()
+	result, err := s.store.List(ctx, opts)
+	s.observeDatabase(start, "list")
+	return result, err
 }
 
 func (s *Service) Dashboard(ctx context.Context) (DashboardStats, error) {
-	return s.store.Dashboard(ctx)
+	start := time.Now()
+	result, err := s.store.Dashboard(ctx)
+	s.observeDatabase(start, "dashboard")
+	return result, err
 }
 
 func (s *Service) RecentActivity(ctx context.Context, limit int) ([]ActivityEvent, error) {
-	return s.store.RecentActivity(ctx, limit)
+	start := time.Now()
+	result, err := s.store.RecentActivity(ctx, limit)
+	s.observeDatabase(start, "recent_activity")
+	return result, err
 }
 
 func (s *Service) Revoke(ctx context.Context, id uuid.UUID, actorID, ipHash, requestID string) (RevokeResult, error) {
+	start := time.Now()
 	result, err := s.store.Revoke(ctx, id)
+	s.observeDatabase(start, "revoke")
 	if err == nil && result.Revoked {
 		s.metrics.SecretRevoked.Inc()
 	}
@@ -152,7 +171,17 @@ func (s *Service) RecordAudit(ctx context.Context, event AuditEventRecord) {
 }
 
 func (s *Service) Cleanup(ctx context.Context) (CleanupResult, error) {
-	return s.store.Cleanup(ctx, s.cfg.ConsumedRetention, s.cfg.ExpiredRetention, s.cfg.RevokedRetention, s.cfg.ConsumingLeaseTTL, s.cfg.AuditRetention)
+	start := time.Now()
+	result, err := s.store.Cleanup(ctx, s.cfg.ConsumedRetention, s.cfg.ExpiredRetention, s.cfg.RevokedRetention, s.cfg.ConsumingLeaseTTL, s.cfg.AuditRetention)
+	elapsed := time.Since(start).Seconds()
+	s.observeDatabase(start, "cleanup")
+	if s.metrics != nil {
+		s.metrics.CleanupDuration.Observe(elapsed)
+		s.metrics.CleanupDeletions.WithLabelValues("payload").Add(float64(result.PayloadsCleared))
+		s.metrics.CleanupDeletions.WithLabelValues("audit").Add(float64(result.AuditDeleted))
+		s.metrics.StaleLeaseRecovery.Add(float64(result.LeasesRestored))
+	}
+	return result, err
 }
 
 func (s *Service) Prepare(ctx context.Context, token string) (PrepareResponse, error) {
@@ -160,7 +189,10 @@ func (s *Service) Prepare(ctx context.Context, token string) (PrepareResponse, e
 	if err != nil {
 		return PrepareResponse{MayAttempt: false, PasswordRequired: false}, nil
 	}
-	return s.store.Prepare(ctx, tokenHash)
+	start := time.Now()
+	result, err := s.store.Prepare(ctx, tokenHash)
+	s.observeDatabase(start, "prepare")
+	return result, err
 }
 
 func (s *Service) Consume(ctx context.Context, token string, password string) (ConsumeResponse, error) {
@@ -179,7 +211,9 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 		return ConsumeResponse{}, fmt.Errorf("%w: lease id failed", ErrInternal)
 	}
 
+	dbStart := time.Now()
 	item, ok, err := s.store.BeginConsume(ctx, tokenHash, leaseID, s.cfg.ConsumingLeaseTTL)
+	s.observeDatabase(dbStart, "begin_consume")
 	if err != nil {
 		return ConsumeResponse{}, fmt.Errorf("%w: begin consume failed", ErrInternal)
 	}
@@ -189,7 +223,10 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 	}
 
 	if item.PasswordHash != nil && !auth.VerifyPassword(password, *item.PasswordHash) {
-		if err := s.store.RecordPasswordFailure(ctx, item.ID, leaseID); err != nil {
+		dbStart := time.Now()
+		err := s.store.RecordPasswordFailure(ctx, item.ID, leaseID)
+		s.observeDatabase(dbStart, "record_password_failure")
+		if err != nil {
 			s.logger.Warn("password failure state update failed", "delivery_id", item.ID, "error", err)
 		}
 		s.recordAudit(ctx, AuditEventRecord{DeliveryID: &item.ID, Type: "secret.password_failed", Result: "unavailable"})
@@ -197,16 +234,23 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 		return ConsumeResponse{}, ErrSecretUnavailable
 	}
 
+	vaultStart := time.Now()
 	plaintext, err := s.vault.Decrypt(ctx, item.EncryptedPayload)
+	s.observeVault(vaultStart, "decrypt")
 	if err != nil {
 		s.metrics.VaultErrors.Inc()
-		if restoreErr := s.store.RestoreConsume(ctx, item.ID, leaseID); restoreErr != nil {
+		dbStart := time.Now()
+		restoreErr := s.store.RestoreConsume(ctx, item.ID, leaseID)
+		s.observeDatabase(dbStart, "restore_consume")
+		if restoreErr != nil {
 			s.logger.Error("consume restore failed after vault error", "delivery_id", item.ID, "error", restoreErr)
 		}
 		return ConsumeResponse{}, fmt.Errorf("%w: vault decrypt failed", ErrDependencyUnavailable)
 	}
 
+	dbStart = time.Now()
 	completed, err := s.store.CompleteConsume(ctx, item.ID, leaseID)
+	s.observeDatabase(dbStart, "complete_consume")
 	if err != nil {
 		return ConsumeResponse{}, fmt.Errorf("%w: complete consume failed", ErrInternal)
 	}
@@ -226,9 +270,26 @@ func (s *Service) recordAudit(ctx context.Context, event AuditEventRecord) {
 	if event.Result == "" {
 		event.Result = "success"
 	}
-	if err := s.store.RecordAuditEvent(ctx, event); err != nil {
+	start := time.Now()
+	err := s.store.RecordAuditEvent(ctx, event)
+	s.observeDatabase(start, "record_audit")
+	if err != nil {
 		s.logger.Warn("audit event recording failed", "event_type", event.Type, "result", event.Result, "error", err)
 	}
+}
+
+func (s *Service) observeVault(start time.Time, operation string) {
+	if s.metrics == nil {
+		return
+	}
+	s.metrics.VaultDuration.WithLabelValues(operation).Observe(time.Since(start).Seconds())
+}
+
+func (s *Service) observeDatabase(start time.Time, operation string) {
+	if s.metrics == nil {
+		return
+	}
+	s.metrics.DatabaseDuration.WithLabelValues(operation).Observe(time.Since(start).Seconds())
 }
 
 func (s *Service) validateCreate(req CreateRequest) error {

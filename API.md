@@ -17,6 +17,13 @@ Authorization: Bearer <admin-api-key>
 ```
 
 The web UI login uses the same key and stores only an opaque HTTP-only SameSite session cookie.
+Browser session requests that change state must include the CSRF token from the page meta tag as `X-CSRF-Token` or form field `csrf_token`. Bearer-token API requests are exempt from browser CSRF protection.
+
+JSON endpoints require:
+
+```http
+Content-Type: application/json
+```
 
 ## Error Model
 
@@ -52,9 +59,68 @@ curl -sS -X POST http://localhost:8080/api/v1/auth/login \
 
 Form login is used by `/login`.
 
+JSON login returns the CSRF token for browser clients:
+
+```json
+{
+  "ok": true,
+  "actor_id": "admin",
+  "csrf_token": "session-bound-token"
+}
+```
+
 ## POST /api/v1/auth/logout
 
-Clears the server-side session cookie.
+Clears the server-side session cookie. Browser session requests require CSRF. Bearer requests return a safe success response without mutating browser cookies.
+
+## GET /api/v1/dashboard
+
+Requires `secret:read-metadata`.
+
+```bash
+curl -sS http://localhost:8080/api/v1/dashboard \
+  -H 'Authorization: Bearer change-me'
+```
+
+Returns safe aggregate counts, recent activity, and dependency status. It does not return labels, recipient values as metrics, payloads, tokens, URLs, or ciphertext.
+
+## GET /api/v1/secret-links
+
+Requires `secret:read-metadata`.
+
+Supported query parameters:
+
+- `page`
+- `page_size` of `10`, `25`, `50`, or `100`
+- `status`
+- `search`
+- `created_from`
+- `created_to`
+- `expires_from`
+- `expires_to`
+- `sort` as `created_at` or `expires_at`
+- `order` as `asc` or `desc`
+
+```bash
+curl -sS 'http://localhost:8080/api/v1/secret-links?page=1&page_size=25&status=active' \
+  -H 'Authorization: Bearer change-me'
+```
+
+Response:
+
+```json
+{
+  "items": [],
+  "pagination": {
+    "page": 1,
+    "page_size": 25,
+    "total_items": 0,
+    "total_pages": 0
+  }
+}
+```
+
+List items contain safe metadata only. Historical rows cannot reconstruct one-time URLs because raw tokens are never stored.
 
 ## POST /api/v1/secret-links
 
@@ -112,7 +178,18 @@ curl -sS -X POST http://localhost:8080/api/v1/secret-links/<id>/revoke \
   -H 'Authorization: Bearer change-me'
 ```
 
-Revocation blanks ciphertext immediately.
+Revocation is idempotent. Revoking an active or consuming link blanks ciphertext immediately. Revoking a consumed link does not rewrite consume history.
+
+## POST /api/v1/admin/cleanup
+
+Requires `secret:revoke`.
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/admin/cleanup \
+  -H 'Authorization: Bearer change-me'
+```
+
+Runs the same cleanup logic as the background worker and returns counts for expired rows, payloads cleared, stale consuming leases restored, and audit rows deleted.
 
 ## POST /api/v1/secret-links/prepare
 
@@ -129,7 +206,8 @@ Response:
 ```json
 {
   "may_attempt": true,
-  "password_required": false
+  "password_required": false,
+  "expires_at": "2026-07-21T10:30:00Z"
 }
 ```
 

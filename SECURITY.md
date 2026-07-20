@@ -11,6 +11,8 @@ SecureShare protects sensitive values during internal handoff to recipients. It 
 - Token HMAC pepper
 - Admin API key
 - Session secret
+- CSRF secret
+- Request IP hash pepper
 - Optional link passwords
 - Vault token and Transit key material
 - PostgreSQL ciphertext and metadata
@@ -40,6 +42,7 @@ Production requirements:
 - Vault audit devices
 - Network policy that permits only the app to reach required Vault endpoints
 - Documented Transit key rotation and restore process
+- Least-privilege policy matching `deploy/vault/secureshare-policy.hcl`
 
 ## Database Security
 
@@ -75,6 +78,19 @@ The frontend does not use localStorage, sessionStorage, IndexedDB, cookies, serv
 
 HTTPS and HSTS are mandatory in production.
 
+## Admin Session and CSRF
+
+The browser admin UI uses an opaque HTTP-only SameSite cookie backed by in-memory server sessions. Session TTL, idle timeout, secure cookie behavior, and CSRF signing are configured with `SESSION_TTL`, `SESSION_IDLE_TIMEOUT`, `COOKIE_SECURE`, and `CSRF_SECRET`.
+
+All authenticated browser state-changing actions require CSRF validation:
+
+- Create secret
+- Revoke secret
+- Manual cleanup
+- Logout
+
+Bearer-token API requests do not use browser CSRF protection.
+
 ## Replay Prevention
 
 The database enforces one-time reveal with an atomic `active` to `consuming` transition and a lease ID. Only the lease owner can complete consumption. After successful decrypt, the app transitions to `consumed` and blanks ciphertext before returning plaintext.
@@ -94,6 +110,20 @@ The MVP includes in-memory fixed-window rate limiting:
 
 Use Redis or another shared limiter before running multiple app replicas.
 
+## Audit Events
+
+Audit events store only safe metadata:
+
+- Event type
+- Result
+- Optional delivery ID
+- Actor ID
+- Hashed IP
+- Request ID
+- Timestamp
+
+Audit events never store secret payloads, raw tokens, generated URLs, passwords, API keys, Authorization headers, Vault ciphertext, or full user agents. Retention is controlled by `AUDIT_EVENT_RETENTION`.
+
 ## Secret Lifecycle
 
 Defaults:
@@ -108,20 +138,25 @@ Defaults:
 
 ## Production Hardening Checklist
 
+Use `docs/PRODUCTION_CHECKLIST.md` as the deployment gate. At minimum:
+
 - Enforce HTTPS and HSTS.
+- Set `APP_ENV=production` and `COOKIE_SECURE=true`.
 - Use a production Vault cluster, not dev mode.
 - Use short-lived Vault auth.
+- Enable Vault audit devices.
 - Enable PostgreSQL TLS and encrypted backups.
 - Generate strong environment secrets.
 - Use external session storage for multiple replicas.
 - Use Redis-backed rate limiting for multiple replicas.
 - Disable request and response body logging everywhere.
-- Redact URL fragments and request bodies in APM and reverse proxies.
+- Redact sensitive paths in APM and reverse proxies.
 - Restrict container egress to PostgreSQL and Vault.
 - Run non-root containers with no-new-privileges.
 - Apply resource limits and image scanning.
 - Ship audit logs to a protected sink.
 - Test restore from PostgreSQL and Vault backups.
+- Run `make security-test` against the deployment.
 
 ## Incident Response Notes
 
@@ -144,3 +179,4 @@ Vault Transit key rotation should use Vault-native rotation. Existing ciphertext
 - In-memory sessions and rate limits are single-instance only.
 - Local Compose uses Vault dev mode.
 - Admin auth is a single API key for the MVP.
+- OIDC, Redis-backed rate limiting, and shared session storage are not implemented.

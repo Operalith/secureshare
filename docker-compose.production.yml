@@ -1,0 +1,84 @@
+services:
+  app:
+    image: ${SECURESHARE_IMAGE:-secureshare:latest}
+    build:
+      context: .
+    environment:
+      APP_ENV: production
+      APP_ADDR: :8080
+      APP_BASE_URL: ${APP_BASE_URL:?set APP_BASE_URL to the public HTTPS origin}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL for production PostgreSQL}
+      VAULT_ADDR: ${VAULT_ADDR:?set VAULT_ADDR for production Vault}
+      VAULT_TOKEN: ${VAULT_TOKEN:?set VAULT_TOKEN from a short-lived production auth flow}
+      VAULT_TRANSIT_KEY: ${VAULT_TRANSIT_KEY:-secureshare}
+      SECURESHARE_ADMIN_API_KEY: ${SECURESHARE_ADMIN_API_KEY:?set a strong admin API key}
+      TOKEN_HMAC_PEPPER: ${TOKEN_HMAC_PEPPER:?set a backed-up token HMAC pepper}
+      SESSION_SECRET: ${SESSION_SECRET:?set a strong session secret}
+      CSRF_SECRET: ${CSRF_SECRET:?set a strong CSRF secret}
+      REQUEST_IP_HASH_PEPPER: ${REQUEST_IP_HASH_PEPPER:?set a request IP hash pepper}
+      MAX_SECRET_TTL: ${MAX_SECRET_TTL:-168h}
+      DEFAULT_SECRET_TTL: ${DEFAULT_SECRET_TTL:-24h}
+      CONSUMING_LEASE_TTL: ${CONSUMING_LEASE_TTL:-30s}
+      CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-5m}
+      CONSUMED_PAYLOAD_RETENTION: ${CONSUMED_PAYLOAD_RETENTION:-0m}
+      EXPIRED_PAYLOAD_RETENTION: ${EXPIRED_PAYLOAD_RETENTION:-24h}
+      REVOKED_PAYLOAD_RETENTION: ${REVOKED_PAYLOAD_RETENTION:-24h}
+      AUDIT_EVENT_RETENTION: ${AUDIT_EVENT_RETENTION:-2160h}
+      SESSION_TTL: ${SESSION_TTL:-8h}
+      SESSION_IDLE_TIMEOUT: ${SESSION_IDLE_TIMEOUT:-30m}
+      COOKIE_SECURE: "true"
+      MAX_SECRET_BYTES: ${MAX_SECRET_BYTES:-32768}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+    ports:
+      - "127.0.0.1:${SECURESHARE_HTTP_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HTTP_PORT:-9090}:9090"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /prometheus:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

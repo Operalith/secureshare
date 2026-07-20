@@ -14,6 +14,7 @@ flowchart TB
     L["In-memory rate limiter"]
     C["Cleanup worker"]
     M["Prometheus metrics"]
+    AU["Safe audit events"]
   end
   DB[("PostgreSQL")]
   V["Vault Transit"]
@@ -24,6 +25,8 @@ flowchart TB
   H --> S
   S --> DB
   S --> V
+  S --> AU
+  AU --> DB
   C --> DB
   C --> M
   S --> M
@@ -101,6 +104,17 @@ The `secret_deliveries` table stores:
 
 It does not store raw tokens or plaintext secrets.
 
+The `audit_events` table stores safe operational events only:
+
+- Event type and result
+- Optional delivery ID
+- Actor ID
+- Hashed IP
+- Request ID
+- Timestamp
+
+It does not store payloads, raw tokens, full URLs, passwords, API keys, Authorization headers, Vault ciphertext, or user-agent strings.
+
 ## Failure Scenarios
 
 - Vault encrypt failure during create: no database row is created.
@@ -116,7 +130,12 @@ The cleanup worker:
 - Marks active expired rows as `expired`.
 - Restores stale consuming leases.
 - Blanks consumed, expired, and revoked payloads after configured retention.
-- Updates the active secret metric.
+- Deletes audit events after configured retention.
+- Updates active secret, cleanup duration, cleanup deletion, and stale lease recovery metrics.
+
+## Observability Model
+
+Metrics intentionally avoid delivery IDs, recipient references, titles, usernames, token hashes, or other high-cardinality labels. Fixed labels are used only for operation classes such as Vault operation, database operation, rate limit area, and cleanup deletion kind.
 
 ## Scaling Considerations
 
@@ -129,3 +148,7 @@ The MVP app is stateless except for in-memory sessions and rate limits. For mult
 - A production Vault auth method
 
 PostgreSQL remains the one-time guarantee authority.
+
+## Production Boundaries
+
+Local Docker Compose includes PostgreSQL and Vault dev mode for development. Production should use `docker-compose.production.yml` or equivalent platform manifests with external PostgreSQL and production Vault. The app expects HTTPS termination and sensitive log redaction at the reverse proxy; `deploy/nginx/secureshare.conf` is an example.

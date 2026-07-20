@@ -257,6 +257,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	ipHash := middleware.IPHash(s.cfg.RequestIPHashPepper, r)
 	if !s.limits.Login.Allow(ipHash) {
+		s.recordRateLimit("login")
+		s.recordLoginFailure()
 		s.writeError(w, delivery.CodeRateLimited, "Too many attempts. Try again later.", http.StatusTooManyRequests)
 		return
 	}
@@ -281,6 +283,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.validAdminKey(apiKey) {
+		s.recordLoginFailure()
 		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
 			ActorID:   "admin",
 			Type:      "auth.login_failed",
@@ -328,6 +331,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.validCSRF(r, session) {
+		s.recordCSRFFailure()
 		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
 		return
 	}
@@ -361,6 +365,7 @@ func (s *Server) handleSecretLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.limits.Create.Allow(actor.ActorID) {
+		s.recordRateLimit("create")
 		s.writeError(w, delivery.CodeRateLimited, "Rate limit exceeded.", http.StatusTooManyRequests)
 		return
 	}
@@ -468,6 +473,7 @@ func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 	}
 	ipHash := middleware.IPHash(s.cfg.RequestIPHashPepper, r)
 	if !s.limits.Prepare.Allow(ipHash) {
+		s.recordRateLimit("prepare")
 		s.writeError(w, delivery.CodeRateLimited, "Rate limit exceeded.", http.StatusTooManyRequests)
 		return
 	}
@@ -502,6 +508,7 @@ func (s *Server) handleConsume(w http.ResponseWriter, r *http.Request) {
 		consumeKey = middleware.IPHash(s.cfg.RequestIPHashPepper, r) + ":" + base64.RawURLEncoding.EncodeToString(hash[:12])
 	}
 	if !s.limits.Consume.Allow(consumeKey) {
+		s.recordRateLimit("consume")
 		s.writeError(w, delivery.CodeRateLimited, "Rate limit exceeded.", http.StatusTooManyRequests)
 		return
 	}
@@ -552,6 +559,7 @@ func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission s
 	}
 	if session, ok := s.auth.FromRequest(r); ok && session.Permissions[permission] {
 		if isStateChanging(r.Method) && !s.validCSRF(r, session) {
+			s.recordCSRFFailure()
 			s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
 			return actor{}, false
 		}
@@ -565,6 +573,24 @@ func (s *Server) validAdminKey(value string) bool {
 	actual := sha256.Sum256([]byte(value))
 	expected := sha256.Sum256([]byte(s.cfg.AdminAPIKey))
 	return hmac.Equal(actual[:], expected[:])
+}
+
+func (s *Server) recordLoginFailure() {
+	if s.metrics != nil {
+		s.metrics.LoginFailures.Inc()
+	}
+}
+
+func (s *Server) recordCSRFFailure() {
+	if s.metrics != nil {
+		s.metrics.CSRFFailures.Inc()
+	}
+}
+
+func (s *Server) recordRateLimit(area string) {
+	if s.metrics != nil {
+		s.metrics.RateLimitEvents.WithLabelValues(area).Inc()
+	}
 }
 
 func (s *Server) validCSRF(r *http.Request, session auth.Session) bool {
