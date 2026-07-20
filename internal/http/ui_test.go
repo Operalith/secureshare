@@ -69,7 +69,7 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{"data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "Password attempt limit", "security-summary", "created-result"} {
+	for _, want := range []string{"data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("create form missing %q", want)
 		}
@@ -549,6 +549,50 @@ func TestEmailSettingsProductionRejectsUnencryptedSMTP(t *testing.T) {
 	app.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("production none SMTP = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEmailDeliveryCreatePreflightAndScopeBehavior(t *testing.T) {
+	app := testServer()
+	linkOnly := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"link-only","expires_in_seconds":900,"send_email":false}`))
+	linkOnly.Header.Set("Content-Type", "application/json")
+	linkOnly.Header.Set("Authorization", "Bearer change-me")
+	linkOnlyRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(linkOnlyRec, linkOnly)
+	if linkOnlyRec.Code != http.StatusCreated {
+		t.Fatalf("link-only create = %d, want 201: %s", linkOnlyRec.Code, linkOnlyRec.Body.String())
+	}
+	if !strings.Contains(linkOnlyRec.Body.String(), `"status":"not_requested"`) {
+		t.Fatalf("link-only response missing not_requested delivery: %s", linkOnlyRec.Body.String())
+	}
+
+	disabled := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"blocked","expires_in_seconds":900,"send_email":true,"recipient_email":"person@example.local"}`))
+	disabled.Header.Set("Content-Type", "application/json")
+	disabled.Header.Set("Authorization", "Bearer change-me")
+	disabledRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(disabledRec, disabled)
+	if disabledRec.Code != http.StatusUnprocessableEntity || !strings.Contains(disabledRec.Body.String(), "EMAIL_DELIVERY_NOT_CONFIGURED") {
+		t.Fatalf("disabled SMTP create = %d body=%s", disabledRec.Code, disabledRec.Body.String())
+	}
+
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	client, _ := createAPIClientViaHTTP(t, app, cookie, csrf, "Email scope test", []string{"secret:create"}, "")
+	scoped := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"blocked","expires_in_seconds":900,"send_email":true,"recipient_email":"person@example.local"}`))
+	scoped.Header.Set("Content-Type", "application/json")
+	scoped.SetBasicAuth(client.ClientID, client.ClientSecret)
+	scopedRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(scopedRec, scoped)
+	if scopedRec.Code != http.StatusForbidden {
+		t.Fatalf("missing email scope create = %d, want 403: %s", scopedRec.Code, scopedRec.Body.String())
+	}
+
+	canonicalFalse := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"canonical-false","expires_in_seconds":900,"send_email":true,"recipient_email":"person@example.local","delivery":{"email":{"send":false}}}`))
+	canonicalFalse.Header.Set("Content-Type", "application/json")
+	canonicalFalse.Header.Set("Authorization", "Bearer change-me")
+	canonicalFalseRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(canonicalFalseRec, canonicalFalse)
+	if canonicalFalseRec.Code != http.StatusCreated {
+		t.Fatalf("canonical false override = %d, want 201: %s", canonicalFalseRec.Code, canonicalFalseRec.Body.String())
 	}
 }
 

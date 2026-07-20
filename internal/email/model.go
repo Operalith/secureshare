@@ -88,6 +88,11 @@ type SendTestRequest struct {
 	To string `json:"to"`
 }
 
+type SendRenderedRequest struct {
+	To       string
+	Rendered RenderedTemplate
+}
+
 type Store interface {
 	GetSettings(ctx context.Context) (StoredSettings, error)
 	SaveSettings(ctx context.Context, settings StoredSettings) (StoredSettings, error)

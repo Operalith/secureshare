@@ -58,18 +58,24 @@ func (l *Limiter) Cleanup() {
 }
 
 type Registry struct {
-	Login   *Limiter
-	Create  *Limiter
-	Prepare *Limiter
-	Consume *Limiter
+	Login      *Limiter
+	Create     *Limiter
+	Prepare    *Limiter
+	Consume    *Limiter
+	EmailSend  *Limiter
+	EmailRetry *Limiter
+	EmailTest  *Limiter
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		Login:   New(10, 15*time.Minute),
-		Create:  New(30, time.Minute),
-		Prepare: New(20, time.Minute),
-		Consume: New(10, time.Minute),
+		Login:      New(10, 15*time.Minute),
+		Create:     New(30, time.Minute),
+		Prepare:    New(20, time.Minute),
+		Consume:    New(10, time.Minute),
+		EmailSend:  New(20, time.Minute),
+		EmailRetry: New(5, time.Minute),
+		EmailTest:  New(5, 15*time.Minute),
 	}
 }
 
@@ -78,4 +84,7 @@ func (r *Registry) Cleanup() {
 	r.Create.Cleanup()
 	r.Prepare.Cleanup()
 	r.Consume.Cleanup()
+	r.EmailSend.Cleanup()
+	r.EmailRetry.Cleanup()
+	r.EmailTest.Cleanup()
 }

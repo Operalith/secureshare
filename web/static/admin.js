@@ -125,6 +125,15 @@
       qsa("[data-mode-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.modePanel !== next));
     }
 
+    function deliveryMode() {
+      return qs("[data-delivery-mode].active")?.dataset.deliveryMode || "link";
+    }
+
+    function setDeliveryMode(next) {
+      qsa("[data-delivery-mode]").forEach((button) => button.classList.toggle("active", button.dataset.deliveryMode === next));
+      qsa("[data-delivery-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.deliveryPanel !== next));
+    }
+
     function rowTemplate() {
       const row = document.createElement("div");
       row.className = "secure-field-row";
@@ -186,6 +195,13 @@
       qs("#created-password").textContent = payload.password ? "Yes" : "No";
       qs("#created-recipient").textContent = payload.recipient_reference || "Not provided";
       qs("#created-url").value = response.url;
+      const email = response.delivery?.email || { requested: false, status: "not_requested" };
+      qs("#created-email-status").textContent = email.requested ? `${email.status}${email.to ? ` to ${email.to}` : ""}` : "Not requested";
+      qs("#email-retry-panel")?.classList.toggle("hidden", !email.requested);
+      qs("#retry-email-to").value = payload.delivery?.email?.to || "";
+      qs("#retry-email-name").value = payload.delivery?.email?.recipient_name || "";
+      qs("#retry-email-subject").value = payload.delivery?.email?.subject || "";
+      qs("#retry-email-message").value = payload.delivery?.email?.message || "";
       qs("#view-created-meta").href = `/admin/secrets/${response.id}`;
       qs("#revoke-created-url").disabled = false;
       resultPanel.classList.remove("hidden");
@@ -199,6 +215,10 @@
 
     qsa("[data-secret-mode]").forEach((button) => {
       button.addEventListener("click", () => setMode(button.dataset.secretMode));
+    });
+
+    qsa("[data-delivery-mode]").forEach((button) => {
+      button.addEventListener("click", () => setDeliveryMode(button.dataset.deliveryMode));
     });
 
     qs("#add-kv-row")?.addEventListener("click", () => {
@@ -251,6 +271,17 @@
         password: password ? password : null,
         max_failed_attempts: Number(data.get("max_failed_attempts") || 5),
       };
+      const sendEmail = deliveryMode() === "email";
+      payload.delivery = {
+        email: {
+          send: sendEmail,
+          to: String(data.get("delivery_to") || ""),
+          recipient_name: String(data.get("delivery_recipient_name") || ""),
+          use_default_template: data.get("delivery_use_default_template") === "on",
+          subject: String(data.get("delivery_subject") || ""),
+          message: String(data.get("delivery_message") || ""),
+        },
+      };
       setButtonLoading(submit, true);
       setStatus("Creating encrypted one-time link...");
       try {
@@ -298,8 +329,48 @@
       createdPayload = null;
       resultPanel?.classList.add("hidden");
       setMode("structured");
+      setDeliveryMode("link");
       setStatus("");
       window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    qs("[data-delivery-preview]")?.addEventListener("click", async () => {
+      const data = new FormData(form);
+      const status = qs("[data-delivery-status]");
+      const response = await fetch("/api/v1/settings/email/template-preview", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          subject: String(data.get("delivery_subject") || ""),
+          message: String(data.get("delivery_message") || ""),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (status) status.textContent = response.ok ? `Preview ready: ${body.subject || "default subject"}.` : body.message || "Preview failed.";
+    });
+
+    qs("#retry-email")?.addEventListener("click", async () => {
+      const url = qs("#created-url")?.value || "";
+      const token = url.includes("#") ? url.split("#").pop() : "";
+      if (!token) {
+        toast("Retry is unavailable after the raw token is gone.");
+        return;
+      }
+      const response = await fetch("/api/v1/secret-links/send-email", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          token,
+          to: qs("#retry-email-to")?.value || "",
+          recipient_name: qs("#retry-email-name")?.value || "",
+          subject: qs("#retry-email-subject")?.value || "",
+          message: qs("#retry-email-message")?.value || "",
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      toast(response.ok && body.email?.status === "sent" ? "Email retry sent." : "Email retry failed.");
     });
 
     form.addEventListener("input", () => {

@@ -15,68 +15,70 @@ const (
 )
 
 type Config struct {
-	AppEnv                   string
-	AppVersion               string
-	AppAddr                  string
-	AppBaseURL               string
-	DatabaseURL              string
-	VaultAddr                string
-	VaultToken               string
-	VaultTransitKey          string
-	AdminAPIKey              string
-	LegacyAdminAPIKeyEnabled bool
-	TokenHMACPepper          string
-	SessionSecret            string
-	CSRFSecret               string
-	BootstrapAdminUsername   string
-	BootstrapAdminEmail      string
-	BootstrapAdminPassword   string
-	SessionTTL               time.Duration
-	SessionIdleTimeout       time.Duration
-	CookieSecure             bool
-	MaxSecretTTL             time.Duration
-	DefaultSecretTTL         time.Duration
-	ConsumingLeaseTTL        time.Duration
-	CleanupInterval          time.Duration
-	ConsumedRetention        time.Duration
-	ExpiredRetention         time.Duration
-	RevokedRetention         time.Duration
-	AuditRetention           time.Duration
-	LogLevel                 string
-	MetricsEnabled           bool
-	OpenAPIPublic            bool
-	SwaggerUIEnabled         bool
-	MigrationsDir            string
-	MaxSecretBytes           int64
-	RequestIPHashPepper      string
-	EnableHSTS               bool
+	AppEnv                        string
+	AppVersion                    string
+	AppAddr                       string
+	AppBaseURL                    string
+	DatabaseURL                   string
+	VaultAddr                     string
+	VaultToken                    string
+	VaultTransitKey               string
+	AdminAPIKey                   string
+	LegacyAdminAPIKeyEnabled      bool
+	TokenHMACPepper               string
+	SessionSecret                 string
+	CSRFSecret                    string
+	BootstrapAdminUsername        string
+	BootstrapAdminEmail           string
+	BootstrapAdminPassword        string
+	SessionTTL                    time.Duration
+	SessionIdleTimeout            time.Duration
+	CookieSecure                  bool
+	MaxSecretTTL                  time.Duration
+	DefaultSecretTTL              time.Duration
+	ConsumingLeaseTTL             time.Duration
+	CleanupInterval               time.Duration
+	ConsumedRetention             time.Duration
+	ExpiredRetention              time.Duration
+	RevokedRetention              time.Duration
+	AuditRetention                time.Duration
+	LogLevel                      string
+	MetricsEnabled                bool
+	OpenAPIPublic                 bool
+	SwaggerUIEnabled              bool
+	DeveloperEmailDeliveryEnabled bool
+	MigrationsDir                 string
+	MaxSecretBytes                int64
+	RequestIPHashPepper           string
+	EnableHSTS                    bool
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		AppEnv:                   getenv("APP_ENV", "development"),
-		AppVersion:               getenv("APP_VERSION", "dev"),
-		AppAddr:                  getenv("APP_ADDR", ":8080"),
-		AppBaseURL:               strings.TrimRight(getenv("APP_BASE_URL", "http://localhost:8080"), "/"),
-		DatabaseURL:              getenv("DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),
-		VaultAddr:                getenv("VAULT_ADDR", "http://localhost:8200"),
-		VaultToken:               getenv("VAULT_TOKEN", "root"),
-		VaultTransitKey:          getenv("VAULT_TRANSIT_KEY", "secureshare"),
-		AdminAPIKey:              getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
-		LegacyAdminAPIKeyEnabled: getenvBool("LEGACY_ADMIN_API_KEY_ENABLED", true),
-		TokenHMACPepper:          getenv("TOKEN_HMAC_PEPPER", "replace-with-a-long-random-value"),
-		SessionSecret:            getenv("SESSION_SECRET", "replace-with-a-long-random-value"),
-		CSRFSecret:               getenv("CSRF_SECRET", "replace-with-a-long-random-value"),
-		BootstrapAdminUsername:   getenv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
-		BootstrapAdminEmail:      getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@example.local"),
-		BootstrapAdminPassword:   getenv("BOOTSTRAP_ADMIN_PASSWORD", "change-me-now"),
-		LogLevel:                 strings.ToLower(getenv("LOG_LEVEL", "info")),
-		MetricsEnabled:           getenvBool("METRICS_ENABLED", true),
-		OpenAPIPublic:            getenvBool("OPENAPI_PUBLIC", false),
-		SwaggerUIEnabled:         getenvBool("SWAGGER_UI_ENABLED", true),
-		MigrationsDir:            getenv("MIGRATIONS_DIR", "migrations"),
-		MaxSecretBytes:           getenvInt64("MAX_SECRET_BYTES", DefaultMaxSecretBytes),
-		RequestIPHashPepper:      getenv("REQUEST_IP_HASH_PEPPER", ""),
+		AppEnv:                        getenv("APP_ENV", "development"),
+		AppVersion:                    getenv("APP_VERSION", "dev"),
+		AppAddr:                       getenv("APP_ADDR", ":8080"),
+		AppBaseURL:                    strings.TrimRight(getenv("APP_BASE_URL", "http://localhost:8080"), "/"),
+		DatabaseURL:                   getenv("DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),
+		VaultAddr:                     getenv("VAULT_ADDR", "http://localhost:8200"),
+		VaultToken:                    getenv("VAULT_TOKEN", "root"),
+		VaultTransitKey:               getenv("VAULT_TRANSIT_KEY", "secureshare"),
+		AdminAPIKey:                   getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
+		LegacyAdminAPIKeyEnabled:      getenvBool("LEGACY_ADMIN_API_KEY_ENABLED", true),
+		TokenHMACPepper:               getenv("TOKEN_HMAC_PEPPER", "replace-with-a-long-random-value"),
+		SessionSecret:                 getenv("SESSION_SECRET", "replace-with-a-long-random-value"),
+		CSRFSecret:                    getenv("CSRF_SECRET", "replace-with-a-long-random-value"),
+		BootstrapAdminUsername:        getenv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
+		BootstrapAdminEmail:           getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@example.local"),
+		BootstrapAdminPassword:        getenv("BOOTSTRAP_ADMIN_PASSWORD", "change-me-now"),
+		LogLevel:                      strings.ToLower(getenv("LOG_LEVEL", "info")),
+		MetricsEnabled:                getenvBool("METRICS_ENABLED", true),
+		OpenAPIPublic:                 getenvBool("OPENAPI_PUBLIC", false),
+		SwaggerUIEnabled:              getenvBool("SWAGGER_UI_ENABLED", true),
+		DeveloperEmailDeliveryEnabled: getenvBool("DEVELOPER_EMAIL_DELIVERY_ENABLED", true),
+		MigrationsDir:                 getenv("MIGRATIONS_DIR", "migrations"),
+		MaxSecretBytes:                getenvInt64("MAX_SECRET_BYTES", DefaultMaxSecretBytes),
+		RequestIPHashPepper:           getenv("REQUEST_IP_HASH_PEPPER", ""),
 	}
 
 	var err error

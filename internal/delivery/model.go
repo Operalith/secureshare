@@ -16,14 +16,30 @@ const (
 )
 
 type CreateRequest struct {
-	Title              string          `json:"title"`
-	Description        string          `json:"description"`
-	RecipientReference string          `json:"recipient_reference"`
-	Secret             json.RawMessage `json:"secret,omitempty"`
-	Payload            *SecretPayload  `json:"payload,omitempty"`
-	ExpiresInSeconds   int64           `json:"expires_in_seconds"`
-	Password           *string         `json:"password"`
-	MaxFailedAttempts  int             `json:"max_failed_attempts"`
+	Title              string           `json:"title"`
+	Description        string           `json:"description"`
+	RecipientReference string           `json:"recipient_reference"`
+	Secret             json.RawMessage  `json:"secret,omitempty"`
+	Payload            *SecretPayload   `json:"payload,omitempty"`
+	ExpiresInSeconds   int64            `json:"expires_in_seconds"`
+	Password           *string          `json:"password"`
+	MaxFailedAttempts  int              `json:"max_failed_attempts"`
+	Delivery           *DeliveryRequest `json:"delivery,omitempty"`
+	SendEmail          *bool            `json:"send_email,omitempty"`
+	RecipientEmail     string           `json:"recipient_email,omitempty"`
+}
+
+type DeliveryRequest struct {
+	Email *EmailDeliveryRequest `json:"email,omitempty"`
+}
+
+type EmailDeliveryRequest struct {
+	Send               *bool  `json:"send,omitempty"`
+	To                 string `json:"to,omitempty"`
+	RecipientName      string `json:"recipient_name,omitempty"`
+	UseDefaultTemplate bool   `json:"use_default_template,omitempty"`
+	Subject            string `json:"subject,omitempty"`
+	Message            string `json:"message,omitempty"`
 }
 
 type SecretPayload struct {
@@ -48,10 +64,24 @@ type PayloadSummary struct {
 }
 
 type CreateResponse struct {
-	ID        uuid.UUID `json:"id"`
-	URL       string    `json:"url"`
-	Status    string    `json:"status"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ID        uuid.UUID      `json:"id"`
+	URL       string         `json:"url"`
+	Status    string         `json:"status"`
+	ExpiresAt time.Time      `json:"expires_at"`
+	Delivery  DeliveryResult `json:"delivery"`
+}
+
+type DeliveryResult struct {
+	Email EmailDeliveryResult `json:"email"`
+}
+
+type EmailDeliveryResult struct {
+	Requested      bool       `json:"requested"`
+	Status         string     `json:"status"`
+	ErrorCode      string     `json:"error_code,omitempty"`
+	To             string     `json:"to,omitempty"`
+	SentAt         *time.Time `json:"sent_at,omitempty"`
+	TemplateSource string     `json:"template_source,omitempty"`
 }
 
 type Metadata struct {

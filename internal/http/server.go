@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -162,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/api-clients", s.handleAPIClientsAPI)
 	mux.HandleFunc("/api/v1/api-clients/", s.handleAPIClientAPI)
 	mux.HandleFunc("/api/v1/secret-links", s.handleSecretLinks)
+	mux.HandleFunc("/api/v1/secret-links/send-email", s.handleSecretLinkSendEmail)
 	mux.HandleFunc("/api/v1/secret-links/", s.handleSecretLinkByID)
 	mux.HandleFunc("/api/v1/secret-links/prepare", s.handlePrepare)
 	mux.HandleFunc("/api/v1/secret-links/consume", s.handleConsume)
@@ -1063,12 +1065,250 @@ func (s *Server) handleSecretLinks(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeJSON(w, r, s.cfg.MaxSecretBytes+8192, &req) {
 		return
 	}
+	emailReq := emailDeliveryFromCreate(req)
+	if emailReq.Requested {
+		if !s.emailActorAllowed(actor) {
+			s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+			return
+		}
+		if !s.limits.EmailSend.Allow(actor.ActorID) {
+			s.recordRateLimit("email_delivery")
+			s.writeError(w, delivery.CodeRateLimited, "Rate limit exceeded.", http.StatusTooManyRequests)
+			return
+		}
+		if err := s.preflightEmailDelivery(r.Context(), emailReq, req.Title, time.Now().UTC().Add(s.cfg.DefaultSecretTTL)); err != nil {
+			s.writeEmailDeliveryPreflightError(w, err)
+			return
+		}
+	}
 	resp, err := s.delivery.Create(r.Context(), actor.ActorID, req)
 	if err != nil {
 		s.writeDeliveryError(w, err)
 		return
 	}
+	if emailReq.Requested {
+		resp.Delivery.Email = s.sendCreatedEmail(r, actor, req, resp, emailReq, false)
+	}
 	s.writeJSON(w, http.StatusCreated, resp)
+}
+
+type emailDeliveryPlan struct {
+	Requested          bool
+	To                 string
+	RecipientName      string
+	UseDefaultTemplate bool
+	Subject            string
+	Message            string
+}
+
+type emailPreflightError string
+
+func (e emailPreflightError) Error() string { return string(e) }
+
+const (
+	emailPreflightNotConfigured emailPreflightError = "EMAIL_DELIVERY_NOT_CONFIGURED"
+	emailPreflightInvalid       emailPreflightError = "EMAIL_DELIVERY_INVALID"
+)
+
+func emailDeliveryFromCreate(req delivery.CreateRequest) emailDeliveryPlan {
+	if req.Delivery != nil && req.Delivery.Email != nil {
+		emailReq := req.Delivery.Email
+		send := false
+		if emailReq.Send != nil {
+			send = *emailReq.Send
+		}
+		return emailDeliveryPlan{
+			Requested:          send,
+			To:                 emailReq.To,
+			RecipientName:      emailReq.RecipientName,
+			UseDefaultTemplate: emailReq.UseDefaultTemplate,
+			Subject:            emailReq.Subject,
+			Message:            emailReq.Message,
+		}
+	}
+	send := req.SendEmail != nil && *req.SendEmail
+	return emailDeliveryPlan{Requested: send, To: req.RecipientEmail, UseDefaultTemplate: true}
+}
+
+func (s *Server) emailActorAllowed(actor actor) bool {
+	if !actor.Permissions["email:send"] {
+		return false
+	}
+	if actor.Role == auth.RoleDeveloper && !s.cfg.DeveloperEmailDeliveryEnabled {
+		return false
+	}
+	return true
+}
+
+func (s *Server) preflightEmailDelivery(ctx context.Context, req emailDeliveryPlan, title string, expiresAt time.Time) error {
+	if strings.TrimSpace(req.To) == "" {
+		return emailPreflightInvalid
+	}
+	if _, err := mail.ParseAddress(strings.TrimSpace(req.To)); err != nil {
+		return emailPreflightInvalid
+	}
+	settings, err := s.email.SafeSettings(ctx)
+	if err != nil || !settings.Enabled || settings.SMTPHost == "" || settings.SMTPPort == 0 || settings.FromEmail == "" {
+		return emailPreflightNotConfigured
+	}
+	if settings.SMTPUsername != "" && !settings.PasswordConfigured {
+		return emailPreflightNotConfigured
+	}
+	if s.cfg.AppEnv == "production" && settings.EncryptionMode == secureemail.EncryptionNone {
+		return emailPreflightNotConfigured
+	}
+	override := emailOverride(req)
+	_, err = secureemail.Render(settings, override, emailTemplateContext(settings, req, title, s.cfg.AppBaseURL+"/s#preview-token-not-real", expiresAt))
+	if err != nil {
+		return emailPreflightInvalid
+	}
+	return nil
+}
+
+func emailOverride(req emailDeliveryPlan) *secureemail.TemplateOverride {
+	if req.UseDefaultTemplate {
+		return nil
+	}
+	return &secureemail.TemplateOverride{Subject: req.Subject, Message: req.Message}
+}
+
+func emailTemplateContext(settings secureemail.Settings, req emailDeliveryPlan, title, secureLink string, expiresAt time.Time) secureemail.TemplateContext {
+	return secureemail.TemplateContext{
+		SecureLink:     secureLink,
+		SecretTitle:    title,
+		RecipientName:  req.RecipientName,
+		RecipientEmail: req.To,
+		SenderName:     settings.FromName,
+		ExpiresAt:      expiresAt,
+		ExpiresIn:      time.Until(expiresAt).Round(time.Second).String(),
+		ProductName:    "SecureShare",
+		SupportEmail:   settings.ReplyToEmail,
+	}
+}
+
+func (s *Server) sendCreatedEmail(r *http.Request, actor actor, req delivery.CreateRequest, resp delivery.CreateResponse, emailReq emailDeliveryPlan, retry bool) delivery.EmailDeliveryResult {
+	settings, err := s.email.SafeSettings(r.Context())
+	if err != nil {
+		return failedEmailResult(emailReq.To, "SMTP_CONFIGURATION_ERROR", "")
+	}
+	rendered, err := secureemail.Render(settings, emailOverride(emailReq), emailTemplateContext(settings, emailReq, req.Title, resp.URL, resp.ExpiresAt))
+	if err != nil {
+		return failedEmailResult(emailReq.To, "SMTP_CONFIGURATION_ERROR", "")
+	}
+	source := rendered.TemplateSource
+	if s.metrics != nil {
+		s.metrics.EmailDeliveryRequested.WithLabelValues(source).Inc()
+	}
+	requestEvent := "email.delivery_requested"
+	if retry {
+		requestEvent = "email.delivery_retry_requested"
+	}
+	s.recordEmailAudit(r, actor, requestEvent, "requested")
+	if source == secureemail.TemplateSourcePerDelivery {
+		s.recordEmailAudit(r, actor, "email.template_override_used", "success")
+	}
+	start := time.Now()
+	result := s.email.SendRendered(r.Context(), secureemail.SendRenderedRequest{To: emailReq.To, Rendered: rendered})
+	if result.OK {
+		sentAt := time.Now().UTC()
+		if s.metrics != nil {
+			s.metrics.EmailDeliverySucceeded.WithLabelValues(source).Inc()
+			s.metrics.EmailDeliveryDuration.WithLabelValues("sent", "none", source).Observe(time.Since(start).Seconds())
+			if retry {
+				s.metrics.EmailDeliveryRetry.WithLabelValues("success", source).Inc()
+			}
+		}
+		eventType := "email.delivery_succeeded"
+		if retry {
+			eventType = "email.delivery_retry_succeeded"
+		}
+		s.recordEmailAudit(r, actor, eventType, "sent")
+		return delivery.EmailDeliveryResult{Requested: true, Status: "sent", To: secureemail.MaskAddress(emailReq.To), SentAt: &sentAt, TemplateSource: source}
+	}
+	category := result.ErrorCategory
+	if category == "" {
+		category = "SMTP_DELIVERY_FAILED"
+	}
+	if s.metrics != nil {
+		s.metrics.EmailDeliveryFailed.WithLabelValues(category, source).Inc()
+		s.metrics.EmailDeliveryDuration.WithLabelValues("failed", category, source).Observe(time.Since(start).Seconds())
+		if retry {
+			s.metrics.EmailDeliveryRetry.WithLabelValues("failed", source).Inc()
+		}
+	}
+	eventType := "email.delivery_failed"
+	if retry {
+		eventType = "email.delivery_retry_failed"
+	}
+	s.recordEmailAudit(r, actor, eventType, category)
+	return failedEmailResult(emailReq.To, category, source)
+}
+
+func failedEmailResult(to, code, source string) delivery.EmailDeliveryResult {
+	return delivery.EmailDeliveryResult{Requested: true, Status: "failed", ErrorCode: code, To: secureemail.MaskAddress(to), TemplateSource: source}
+}
+
+func (s *Server) writeEmailDeliveryPreflightError(w http.ResponseWriter, err error) {
+	if errors.Is(err, emailPreflightNotConfigured) {
+		s.writeError(w, delivery.CodeEmailDeliveryNotConfigured, "Email delivery is not configured or enabled.", http.StatusUnprocessableEntity)
+		return
+	}
+	s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusUnprocessableEntity)
+}
+
+func (s *Server) handleSecretLinkSendEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	actor, ok := s.requireAPI(w, r, "email:send")
+	if !ok {
+		return
+	}
+	if !s.emailActorAllowed(actor) {
+		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Token              string `json:"token"`
+		To                 string `json:"to"`
+		RecipientName      string `json:"recipient_name"`
+		UseDefaultTemplate bool   `json:"use_default_template"`
+		Subject            string `json:"subject"`
+		Message            string `json:"message"`
+	}
+	if !s.decodeJSON(w, r, 16*1024, &req) {
+		return
+	}
+	retryKey := actor.ActorID + ":missing"
+	if hash, err := securecrypto.TokenHMAC(s.cfg.TokenHMACPepper, req.Token); err == nil {
+		retryKey = actor.ActorID + ":" + base64.RawURLEncoding.EncodeToString(hash[:12])
+	}
+	if !s.limits.EmailRetry.Allow(retryKey) {
+		s.recordRateLimit("email_retry")
+		if s.metrics != nil {
+			s.metrics.EmailDeliveryRetry.WithLabelValues("rate_limited", secureemail.TemplateSourcePerDelivery).Inc()
+		}
+		s.writeError(w, delivery.CodeRateLimited, "Rate limit exceeded.", http.StatusTooManyRequests)
+		return
+	}
+	prepare, err := s.delivery.Prepare(r.Context(), req.Token)
+	if err != nil || !prepare.MayAttempt {
+		s.writeDeliveryError(w, delivery.ErrSecretUnavailable)
+		return
+	}
+	expiresAt := time.Now().UTC().Add(s.cfg.DefaultSecretTTL)
+	if prepare.ExpiresAt != nil {
+		expiresAt = *prepare.ExpiresAt
+	}
+	emailReq := emailDeliveryPlan{Requested: true, To: req.To, RecipientName: req.RecipientName, UseDefaultTemplate: req.UseDefaultTemplate, Subject: req.Subject, Message: req.Message}
+	if err := s.preflightEmailDelivery(r.Context(), emailReq, "", expiresAt); err != nil {
+		s.writeEmailDeliveryPreflightError(w, err)
+		return
+	}
+	resp := delivery.CreateResponse{URL: s.cfg.AppBaseURL + "/s#" + req.Token, ExpiresAt: expiresAt}
+	result := s.sendCreatedEmail(r, actor, delivery.CreateRequest{}, resp, emailReq, true)
+	s.writeJSON(w, http.StatusOK, delivery.DeliveryResult{Email: result})
 }
 
 func (s *Server) handleSecretLinkByID(w http.ResponseWriter, r *http.Request) {
@@ -1212,6 +1452,11 @@ func (s *Server) handleEmailSettingsActionAPI(w http.ResponseWriter, r *http.Req
 		s.recordEmailAudit(r, actor, eventType, result.Result)
 		s.writeJSON(w, http.StatusOK, result)
 	case action == "send-test" && r.Method == http.MethodPost:
+		if !s.limits.EmailTest.Allow(actor.ActorID) {
+			s.recordRateLimit("email_test")
+			s.writeError(w, delivery.CodeRateLimited, "Rate limit exceeded.", http.StatusTooManyRequests)
+			return
+		}
 		var req secureemail.SendTestRequest
 		if !s.decodeJSON(w, r, 2048, &req) {
 			return

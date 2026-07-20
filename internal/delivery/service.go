@@ -130,6 +130,7 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 		URL:       s.cfg.AppBaseURL + "/s#" + token,
 		Status:    StatusActive,
 		ExpiresAt: expiresAt,
+		Delivery:  DeliveryResult{Email: EmailDeliveryResult{Requested: false, Status: "not_requested"}},
 	}, nil
 }
 

@@ -27,6 +27,11 @@ type Metrics struct {
 	SMTPConnectionErrors   *prometheus.CounterVec
 	EmailTestDeliveries    *prometheus.CounterVec
 	SMTPConnectionDuration *prometheus.HistogramVec
+	EmailDeliveryRequested *prometheus.CounterVec
+	EmailDeliverySucceeded *prometheus.CounterVec
+	EmailDeliveryFailed    *prometheus.CounterVec
+	EmailDeliveryRetry     *prometheus.CounterVec
+	EmailDeliveryDuration  *prometheus.HistogramVec
 	StaleLeaseRecovery     prometheus.Counter
 	ActiveSecrets          prometheus.Gauge
 }
@@ -112,6 +117,27 @@ func New() *Metrics {
 			Help:    "SMTP connection test duration in seconds.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"result", "encryption_mode"}),
+		EmailDeliveryRequested: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_email_delivery_requested_total",
+			Help: "Total requested one-time-link email deliveries.",
+		}, []string{"template_source"}),
+		EmailDeliverySucceeded: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_email_delivery_succeeded_total",
+			Help: "Total successful one-time-link email deliveries.",
+		}, []string{"template_source"}),
+		EmailDeliveryFailed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_email_delivery_failed_total",
+			Help: "Total failed one-time-link email deliveries by safe category and template source.",
+		}, []string{"error_category", "template_source"}),
+		EmailDeliveryRetry: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_email_delivery_retry_total",
+			Help: "Total one-time-link email retry attempts by result and template source.",
+		}, []string{"result", "template_source"}),
+		EmailDeliveryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "secureshare_email_delivery_duration_seconds",
+			Help:    "One-time-link email delivery duration in seconds.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"result", "error_category", "template_source"}),
 		StaleLeaseRecovery: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "secureshare_stale_lease_recovery_total",
 			Help: "Total stale consuming leases restored to active by cleanup.",
@@ -140,6 +166,11 @@ func New() *Metrics {
 		m.SMTPConnectionErrors,
 		m.EmailTestDeliveries,
 		m.SMTPConnectionDuration,
+		m.EmailDeliveryRequested,
+		m.EmailDeliverySucceeded,
+		m.EmailDeliveryFailed,
+		m.EmailDeliveryRetry,
+		m.EmailDeliveryDuration,
 		m.StaleLeaseRecovery,
 		m.ActiveSecrets,
 	)
@@ -181,6 +212,20 @@ func New() *Metrics {
 	}
 	for _, result := range []string{"success", "failed"} {
 		m.EmailTestDeliveries.WithLabelValues(result)
+	}
+	for _, source := range []string{"fallback", "global_default", "per_delivery"} {
+		m.EmailDeliveryRequested.WithLabelValues(source)
+		m.EmailDeliverySucceeded.WithLabelValues(source)
+		for _, result := range []string{"success", "failed", "rate_limited"} {
+			m.EmailDeliveryRetry.WithLabelValues(result, source)
+		}
+		for _, category := range []string{"SMTP_CONFIGURATION_ERROR", "SMTP_CONNECTION_FAILED", "SMTP_TLS_FAILED", "SMTP_AUTHENTICATION_FAILED", "SMTP_RECIPIENT_REJECTED", "SMTP_TIMEOUT", "SMTP_DELIVERY_FAILED"} {
+			m.EmailDeliveryFailed.WithLabelValues(category, source)
+			for _, result := range []string{"sent", "failed"} {
+				m.EmailDeliveryDuration.WithLabelValues(result, category, source)
+			}
+		}
+		m.EmailDeliveryDuration.WithLabelValues("sent", "none", source)
 	}
 	return m
 }

@@ -15,12 +15,13 @@ var (
 type ErrorCode string
 
 const (
-	CodeInvalidRequest        ErrorCode = "INVALID_REQUEST"
-	CodeUnauthorized          ErrorCode = "UNAUTHORIZED"
-	CodeForbidden             ErrorCode = "FORBIDDEN"
-	CodeSecretUnavailable     ErrorCode = "SECRET_UNAVAILABLE"
-	CodeRateLimited           ErrorCode = "RATE_LIMITED"
-	CodePayloadTooLarge       ErrorCode = "PAYLOAD_TOO_LARGE"
-	CodeInternal              ErrorCode = "INTERNAL_ERROR"
-	CodeDependencyUnavailable ErrorCode = "DEPENDENCY_UNAVAILABLE"
+	CodeInvalidRequest             ErrorCode = "INVALID_REQUEST"
+	CodeUnauthorized               ErrorCode = "UNAUTHORIZED"
+	CodeForbidden                  ErrorCode = "FORBIDDEN"
+	CodeSecretUnavailable          ErrorCode = "SECRET_UNAVAILABLE"
+	CodeRateLimited                ErrorCode = "RATE_LIMITED"
+	CodePayloadTooLarge            ErrorCode = "PAYLOAD_TOO_LARGE"
+	CodeInternal                   ErrorCode = "INTERNAL_ERROR"
+	CodeDependencyUnavailable      ErrorCode = "DEPENDENCY_UNAVAILABLE"
+	CodeEmailDeliveryNotConfigured ErrorCode = "EMAIL_DELIVERY_NOT_CONFIGURED"
 )

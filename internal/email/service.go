@@ -2,7 +2,9 @@ package email
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -162,7 +164,7 @@ func (s *Service) SendTest(ctx context.Context, to string) ConnectionTestResult 
 	if _, err := mail.ParseAddress(strings.TrimSpace(to)); err != nil {
 		return s.connectionResult(start, false, stored.EncryptionMode, "SMTP_RECIPIENT_REJECTED")
 	}
-	result := s.sendMail(ctx, stored, strings.TrimSpace(to), "SecureShare SMTP test", "This is a safe SecureShare SMTP test message. It does not contain a secret or one-time link.")
+	result := s.sendMail(ctx, stored, strings.TrimSpace(to), "SecureShare SMTP test", "This is a safe SecureShare SMTP test message. It does not contain a secret or one-time link.", "")
 	result.DurationMS = time.Since(start).Milliseconds()
 	if s.metrics != nil {
 		status := "success"
@@ -171,6 +173,24 @@ func (s *Service) SendTest(ctx context.Context, to string) ConnectionTestResult 
 		}
 		s.metrics.EmailTestDeliveries.WithLabelValues(status).Inc()
 	}
+	return result
+}
+
+func (s *Service) SendRendered(ctx context.Context, req SendRenderedRequest) ConnectionTestResult {
+	start := time.Now()
+	stored, err := s.store.GetSettings(ctx)
+	if err != nil {
+		return s.connectionResult(start, false, EncryptionStartTLS, "SMTP_CONFIGURATION_ERROR")
+	}
+	if err := s.validate(stored.Settings); err != nil || !stored.Enabled {
+		return s.connectionResult(start, false, stored.EncryptionMode, "SMTP_CONFIGURATION_ERROR")
+	}
+	to := strings.TrimSpace(req.To)
+	if _, err := mail.ParseAddress(to); err != nil {
+		return s.connectionResult(start, false, stored.EncryptionMode, "SMTP_RECIPIENT_REJECTED")
+	}
+	result := s.sendMail(ctx, stored, to, req.Rendered.Subject, req.Rendered.Text, req.Rendered.HTML)
+	result.DurationMS = time.Since(start).Milliseconds()
 	return result
 }
 
@@ -242,7 +262,7 @@ func (s *Service) connectAndAuthenticate(ctx context.Context, stored StoredSetti
 	return ConnectionTestResult{OK: true, Result: "success", EncryptionMode: stored.EncryptionMode}
 }
 
-func (s *Service) sendMail(ctx context.Context, stored StoredSettings, to, subject, body string) ConnectionTestResult {
+func (s *Service) sendMail(ctx context.Context, stored StoredSettings, to, subject, textBody, htmlBody string) ConnectionTestResult {
 	client, closeFn, category := s.smtpClient(ctx, stored)
 	if category != "" {
 		return s.connectionResult(time.Now(), false, stored.EncryptionMode, category)
@@ -252,11 +272,7 @@ func (s *Service) sendMail(ctx context.Context, stored StoredSettings, to, subje
 		return s.connectionResult(time.Now(), false, stored.EncryptionMode, "SMTP_AUTHENTICATION_FAILED")
 	}
 	from := mail.Address{Name: stored.FromName, Address: stored.FromEmail}
-	message := []byte("From: " + from.String() + "\r\n" +
-		"To: " + to + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n" +
-		"\r\n" + body + "\r\n")
+	message := buildMessage(stored, to, from.String(), subject, textBody, htmlBody)
 	if err := client.Mail(stored.FromEmail); err != nil {
 		return s.connectionResult(time.Now(), false, stored.EncryptionMode, "SMTP_DELIVERY_FAILED")
 	}
@@ -276,6 +292,55 @@ func (s *Service) sendMail(ctx context.Context, stored StoredSettings, to, subje
 	}
 	_ = client.Quit()
 	return ConnectionTestResult{OK: true, Result: "success", EncryptionMode: stored.EncryptionMode}
+}
+
+func buildMessage(stored StoredSettings, to, from, subject, textBody, htmlBody string) []byte {
+	domain := "localhost"
+	if address, err := mail.ParseAddress(stored.FromEmail); err == nil {
+		if _, after, ok := strings.Cut(address.Address, "@"); ok && after != "" {
+			domain = after
+		}
+	}
+	messageID := randomMessageID(domain)
+	headers := "From: " + from + "\r\n" +
+		"To: " + to + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"Message-ID: " + messageID + "\r\n" +
+		"MIME-Version: 1.0\r\n"
+	if strings.TrimSpace(htmlBody) == "" {
+		return []byte(headers + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + textBody + "\r\n")
+	}
+	boundary := "secureshare-" + randomHex(12)
+	return []byte(headers +
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n" +
+		"--" + boundary + "\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" + textBody + "\r\n" +
+		"--" + boundary + "\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + htmlBody + "\r\n" +
+		"--" + boundary + "--\r\n")
+}
+
+func randomMessageID(domain string) string {
+	return "<" + randomHex(16) + "@" + domain + ">"
+}
+
+func randomHex(bytes int) string {
+	buf := make([]byte, bytes)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf)
+}
+
+func MaskAddress(address string) string {
+	parsed, err := mail.ParseAddress(strings.TrimSpace(address))
+	if err != nil {
+		return ""
+	}
+	local, domain, ok := strings.Cut(parsed.Address, "@")
+	if !ok || local == "" {
+		return ""
+	}
+	first := local[:1]
+	return first + "***@" + domain
 }
 
 func (s *Service) smtpClient(ctx context.Context, stored StoredSettings) (*smtp.Client, func(), string) {

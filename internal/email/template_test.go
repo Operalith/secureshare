@@ -106,6 +106,24 @@ func TestPreviewUsesFakeValuesAndCreatesNoSecret(t *testing.T) {
 	}
 }
 
+func TestBuildMessageIncludesTextAndHTMLWithoutSecretValues(t *testing.T) {
+	rendered, err := Render(Settings{}, &TemplateOverride{Subject: "Subject", Message: "Use {{secure_link}}"}, renderContext())
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	message := string(buildMessage(StoredSettings{Settings: Settings{FromEmail: "secureshare@example.local"}}, "recipient@example.local", "SecureShare <secureshare@example.local>", rendered.Subject, rendered.Text, rendered.HTML))
+	for _, want := range []string{"multipart/alternative", "Content-Type: text/plain", "Content-Type: text/html", "Message-ID:", "https://example.local/s#fragment-token"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message missing %q: %s", want, message)
+		}
+	}
+	for _, forbidden := range []string{"example-password", "example-api-key", "client-secret-value", "<script>"} {
+		if strings.Contains(message, forbidden) {
+			t.Fatalf("message leaked forbidden value %q: %s", forbidden, message)
+		}
+	}
+}
+
 func renderContext() TemplateContext {
 	return TemplateContext{
 		SecureLink:     "https://example.local/s#fragment-token",
