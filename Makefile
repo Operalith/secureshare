@@ -1,4 +1,4 @@
-.PHONY: up down build test integration-test smoke logs clean fmt lint
+.PHONY: up down build test integration-test smoke security-test logs clean fmt lint
 
 up:
 	docker compose up -d --build
@@ -17,6 +17,9 @@ integration-test:
 
 smoke:
 	./scripts/smoke-test.sh
+
+security-test:
+	./scripts/security-test.sh
 
 logs:
 	docker compose logs -f app

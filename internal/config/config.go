@@ -25,7 +25,9 @@ type Config struct {
 	AdminAPIKey         string
 	TokenHMACPepper     string
 	SessionSecret       string
+	CSRFSecret          string
 	SessionTTL          time.Duration
+	SessionIdleTimeout  time.Duration
 	CookieSecure        bool
 	MaxSecretTTL        time.Duration
 	DefaultSecretTTL    time.Duration
@@ -55,6 +57,7 @@ func Load() (Config, error) {
 		AdminAPIKey:         getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
 		TokenHMACPepper:     getenv("TOKEN_HMAC_PEPPER", "replace-with-a-long-random-value"),
 		SessionSecret:       getenv("SESSION_SECRET", "replace-with-a-long-random-value"),
+		CSRFSecret:          getenv("CSRF_SECRET", "replace-with-a-long-random-value"),
 		LogLevel:            strings.ToLower(getenv("LOG_LEVEL", "info")),
 		MetricsEnabled:      getenvBool("METRICS_ENABLED", true),
 		MigrationsDir:       getenv("MIGRATIONS_DIR", "migrations"),
@@ -90,8 +93,11 @@ func Load() (Config, error) {
 	if cfg.SessionTTL, err = getenvDuration("SESSION_TTL", 12*time.Hour); err != nil {
 		return cfg, err
 	}
+	if cfg.SessionIdleTimeout, err = getenvDuration("SESSION_IDLE_TIMEOUT", 30*time.Minute); err != nil {
+		return cfg, err
+	}
 
-	cfg.CookieSecure = cfg.AppEnv != "development"
+	cfg.CookieSecure = getenvBool("COOKIE_SECURE", cfg.AppEnv != "development")
 	cfg.EnableHSTS = cfg.AppEnv == "production"
 	if cfg.RequestIPHashPepper == "" {
 		cfg.RequestIPHashPepper = cfg.SessionSecret
@@ -111,6 +117,7 @@ func (c Config) Validate() error {
 		"SECURESHARE_ADMIN_API_KEY": c.AdminAPIKey,
 		"TOKEN_HMAC_PEPPER":         c.TokenHMACPepper,
 		"SESSION_SECRET":            c.SessionSecret,
+		"CSRF_SECRET":               c.CSRFSecret,
 		"REQUEST_IP_HASH_PEPPER":    c.RequestIPHashPepper,
 	}
 	for name, value := range required {
@@ -133,6 +140,9 @@ func (c Config) Validate() error {
 	if c.CleanupInterval <= 0 {
 		errs = append(errs, errors.New("CLEANUP_INTERVAL must be positive"))
 	}
+	if c.SessionTTL <= 0 || c.SessionIdleTimeout <= 0 || c.SessionIdleTimeout > c.SessionTTL {
+		errs = append(errs, errors.New("SESSION_IDLE_TIMEOUT must be positive and no greater than SESSION_TTL"))
+	}
 	if c.MaxSecretBytes <= 0 || c.MaxSecretBytes > 1024*1024 {
 		errs = append(errs, errors.New("MAX_SECRET_BYTES must be between 1 byte and 1 MiB"))
 	}
@@ -146,6 +156,12 @@ func (c Config) Validate() error {
 		}
 		if len(c.SessionSecret) < 32 || strings.Contains(c.SessionSecret, "replace-with") {
 			errs = append(errs, errors.New("SESSION_SECRET must be strong outside development"))
+		}
+		if len(c.CSRFSecret) < 32 || strings.Contains(c.CSRFSecret, "replace-with") {
+			errs = append(errs, errors.New("CSRF_SECRET must be strong outside development"))
+		}
+		if !c.CookieSecure {
+			errs = append(errs, errors.New("COOKIE_SECURE must be true outside development"))
 		}
 	}
 

@@ -10,6 +10,11 @@
     return Array.from(root.querySelectorAll(selector));
   }
 
+  function csrfHeaders(extra = {}) {
+    const token = qs('meta[name="csrf-token"]')?.getAttribute("content") || "";
+    return token ? { ...extra, "X-CSRF-Token": token } : extra;
+  }
+
   function toast(message) {
     const region = qs(".toast-region");
     if (!region) return;
@@ -235,7 +240,7 @@
         const response = await fetch("/api/v1/secret-links", {
           method: "POST",
           credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(payload),
         });
         const body = await response.json().catch(() => ({}));
@@ -261,7 +266,7 @@
       if (!createdID) return;
       const ok = await confirmAction("Revoke this link?", "Recipients will no longer be able to reveal this secret.");
       if (!ok) return;
-      const response = await fetch(`/api/v1/secret-links/${createdID}/revoke`, { method: "POST", credentials: "same-origin" });
+      const response = await fetch(`/api/v1/secret-links/${createdID}/revoke`, { method: "POST", credentials: "same-origin", headers: csrfHeaders() });
       if (response.ok) {
         qs("#revoke-created-url").disabled = true;
         toast("Link revoked.");
@@ -307,7 +312,7 @@
       const ok = await confirmAction("Revoke this link?", "Recipients will receive the generic unavailable message.");
       if (!ok) return;
       button.disabled = true;
-      const response = await fetch(`/api/v1/secret-links/${id}/revoke`, { method: "POST", credentials: "same-origin" });
+      const response = await fetch(`/api/v1/secret-links/${id}/revoke`, { method: "POST", credentials: "same-origin", headers: csrfHeaders() });
       if (response.ok) {
         button.textContent = "Revoked";
         toast("Link revoked.");

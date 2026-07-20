@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"html/template"
 	"log/slog"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -270,6 +272,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		apiKey = body.APIKey
 	} else {
+		r.Body = http.MaxBytesReader(w, r.Body, 2048)
 		if err := r.ParseForm(); err != nil {
 			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
 			return
@@ -288,7 +291,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
 		return
 	}
-	if err := s.auth.Create(w, "admin", adminPermissions()); err != nil {
+	if _, err := r.Cookie(auth.CookieName); err == nil {
+		s.auth.Destroy(w, r)
+	}
+	session, err := s.auth.Create(w, "admin", adminPermissions())
+	if err != nil {
 		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
 		return
 	}
@@ -303,12 +310,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "actor_id": "admin"})
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "actor_id": "admin", "csrf_token": s.auth.CSRFToken(session)})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	if bearer := bearerToken(r); bearer != "" && s.validAdminKey(bearer) {
+		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	session, ok := s.auth.FromRequest(r)
+	if !ok {
+		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+		return
+	}
+	if !s.validCSRF(r, session) {
+		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
 		return
 	}
 	s.auth.Destroy(w, r)
@@ -523,13 +543,18 @@ func (s *Server) requirePage(w http.ResponseWriter, r *http.Request, permission 
 type actor struct {
 	ActorID     string
 	Permissions map[string]bool
+	Bearer      bool
 }
 
 func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission string) (actor, bool) {
 	if bearer := bearerToken(r); bearer != "" && s.validAdminKey(bearer) {
-		return actor{ActorID: "admin", Permissions: permissionsMap(adminPermissions())}, true
+		return actor{ActorID: "admin", Permissions: permissionsMap(adminPermissions()), Bearer: true}, true
 	}
 	if session, ok := s.auth.FromRequest(r); ok && session.Permissions[permission] {
+		if isStateChanging(r.Method) && !s.validCSRF(r, session) {
+			s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+			return actor{}, false
+		}
 		return actor{ActorID: session.ActorID, Permissions: session.Permissions}, true
 	}
 	s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
@@ -537,7 +562,33 @@ func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission s
 }
 
 func (s *Server) validAdminKey(value string) bool {
-	return hmac.Equal([]byte(value), []byte(s.cfg.AdminAPIKey))
+	actual := sha256.Sum256([]byte(value))
+	expected := sha256.Sum256([]byte(s.cfg.AdminAPIKey))
+	return hmac.Equal(actual[:], expected[:])
+}
+
+func (s *Server) validCSRF(r *http.Request, session auth.Session) bool {
+	return s.auth.ValidCSRF(session, csrfTokenFromRequest(r))
+}
+
+func csrfTokenFromRequest(r *http.Request) string {
+	if token := r.Header.Get("X-CSRF-Token"); token != "" {
+		return token
+	}
+	if strings.Contains(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") ||
+		strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+		return r.FormValue("csrf_token")
+	}
+	return ""
+}
+
+func isStateChanging(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
 }
 
 func bearerToken(r *http.Request) string {
@@ -565,6 +616,11 @@ func permissionsMap(values []string) map[string]bool {
 }
 
 func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, dst any) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		s.writeError(w, delivery.CodeInvalidRequest, "Content-Type must be application/json.", http.StatusUnsupportedMediaType)
+		return false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -591,6 +647,9 @@ func (s *Server) adminData(r *http.Request, values map[string]any) map[string]an
 	values["Env"] = s.cfg.AppEnv
 	values["CurrentPath"] = r.URL.Path
 	values["ActorID"] = "admin"
+	if session, ok := s.auth.FromRequest(r); ok {
+		values["CSRFToken"] = s.auth.CSRFToken(session)
+	}
 	return values
 }
 

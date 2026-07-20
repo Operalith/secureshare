@@ -18,29 +18,34 @@ type Session struct {
 	ActorID     string
 	Permissions map[string]bool
 	ExpiresAt   time.Time
+	LastSeenAt  time.Time
 }
 
 type SessionManager struct {
-	secret []byte
-	ttl    time.Duration
-	secure bool
-	mu     sync.RWMutex
-	items  map[string]Session
+	secret      []byte
+	csrfSecret  []byte
+	ttl         time.Duration
+	idleTimeout time.Duration
+	secure      bool
+	mu          sync.RWMutex
+	items       map[string]Session
 }
 
-func NewSessionManager(secret string, ttl time.Duration, secure bool) *SessionManager {
+func NewSessionManager(secret, csrfSecret string, ttl, idleTimeout time.Duration, secure bool) *SessionManager {
 	return &SessionManager{
-		secret: []byte(secret),
-		ttl:    ttl,
-		secure: secure,
-		items:  map[string]Session{},
+		secret:      []byte(secret),
+		csrfSecret:  []byte(csrfSecret),
+		ttl:         ttl,
+		idleTimeout: idleTimeout,
+		secure:      secure,
+		items:       map[string]Session{},
 	}
 }
 
-func (m *SessionManager) Create(w http.ResponseWriter, actorID string, permissions []string) error {
+func (m *SessionManager) Create(w http.ResponseWriter, actorID string, permissions []string) (Session, error) {
 	idBytes := make([]byte, 32)
 	if _, err := rand.Read(idBytes); err != nil {
-		return err
+		return Session{}, err
 	}
 	id := base64.RawURLEncoding.EncodeToString(idBytes)
 	perms := map[string]bool{}
@@ -52,12 +57,13 @@ func (m *SessionManager) Create(w http.ResponseWriter, actorID string, permissio
 		ActorID:     actorID,
 		Permissions: perms,
 		ExpiresAt:   time.Now().Add(m.ttl),
+		LastSeenAt:  time.Now(),
 	}
 	m.mu.Lock()
 	m.items[id] = session
 	m.mu.Unlock()
 	http.SetCookie(w, m.cookie(id, session.ExpiresAt))
-	return nil
+	return session, nil
 }
 
 func (m *SessionManager) Destroy(w http.ResponseWriter, r *http.Request) {
@@ -88,10 +94,11 @@ func (m *SessionManager) FromRequest(r *http.Request) (Session, bool) {
 	if !ok {
 		return Session{}, false
 	}
+	now := time.Now()
 	m.mu.RLock()
 	session, ok := m.items[id]
 	m.mu.RUnlock()
-	if !ok || time.Now().After(session.ExpiresAt) {
+	if !ok || now.After(session.ExpiresAt) || (m.idleTimeout > 0 && now.Sub(session.LastSeenAt) > m.idleTimeout) {
 		if ok {
 			m.mu.Lock()
 			delete(m.items, id)
@@ -99,7 +106,25 @@ func (m *SessionManager) FromRequest(r *http.Request) (Session, bool) {
 		}
 		return Session{}, false
 	}
+	session.LastSeenAt = now
+	m.mu.Lock()
+	m.items[id] = session
+	m.mu.Unlock()
 	return session, true
+}
+
+func (m *SessionManager) CSRFToken(session Session) string {
+	mac := hmac.New(sha256.New, m.csrfSecret)
+	_, _ = mac.Write([]byte(session.ID))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (m *SessionManager) ValidCSRF(session Session, token string) bool {
+	if token == "" {
+		return false
+	}
+	expected := m.CSRFToken(session)
+	return hmac.Equal([]byte(token), []byte(expected))
 }
 
 func (m *SessionManager) cookie(id string, expires time.Time) *http.Cookie {

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/admin.js" defer></script>
 </head>
@@ -36,6 +37,7 @@
           <span class="user-pill">{{ .ActorID }}</span>
           <button type="button" class="ghost compact" data-theme-toggle>Theme</button>
           <form method="post" action="/api/v1/auth/logout">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
             <button type="submit" class="ghost compact">Logout</button>
           </form>
         </div>

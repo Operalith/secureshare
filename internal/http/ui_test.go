@@ -137,7 +137,9 @@ func testServer() *Server {
 		AdminAPIKey:         "change-me",
 		TokenHMACPepper:     "test-pepper-with-enough-length",
 		SessionSecret:       "test-session-secret-with-enough-length",
+		CSRFSecret:          "test-csrf-secret-with-enough-length",
 		SessionTTL:          time.Hour,
+		SessionIdleTimeout:  30 * time.Minute,
 		RequestIPHashPepper: "ip-pepper-with-enough-length",
 		MaxSecretTTL:        7 * 24 * time.Hour,
 		DefaultSecretTTL:    24 * time.Hour,
@@ -147,7 +149,7 @@ func testServer() *Server {
 	return New(Dependencies{
 		Config:   cfg,
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.SessionTTL, false),
+		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false),
 		Delivery: delivery.NewService(cfg, &uiStore{}, &uiVault{}, observability.New(), slog.Default()),
 		Metrics:  observability.New(),
 		Limits:   ratelimit.NewRegistry(),
@@ -255,7 +257,7 @@ func TestGeneratedHTMLDoesNotContainCreatedSecret(t *testing.T) {
 	app := testServer()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":{"password":"canary-secret-value"},"expires_in_seconds":900}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(loginCookie(t, app))
+	req.Header.Set("Authorization", "Bearer change-me")
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, req)
 	raw := rec.Body.String()
@@ -265,5 +267,41 @@ func TestGeneratedHTMLDoesNotContainCreatedSecret(t *testing.T) {
 	}
 	if strings.Contains(raw, "canary-secret-value") {
 		t.Fatal("creation response included plaintext secret")
+	}
+}
+
+func TestCSRFRejectsSessionStateChangeWithoutToken(t *testing.T) {
+	app := testServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"blocked","expires_in_seconds":900}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(loginCookie(t, app))
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("session create without CSRF = %d, want 403", rec.Code)
+	}
+}
+
+func TestBearerCreateBypassesBrowserCSRF(t *testing.T) {
+	app := testServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"ok","expires_in_seconds":900}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer change-me")
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("bearer create = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestInvalidJSONContentTypeRejected(t *testing.T) {
+	app := testServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"ok","expires_in_seconds":900}`))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Authorization", "Bearer change-me")
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("invalid content type = %d, want 415", rec.Code)
 	}
 }

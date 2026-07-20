@@ -55,7 +55,7 @@ func main() {
 	repo := delivery.NewRepository(db)
 	metrics := observability.New()
 	secrets := delivery.NewService(cfg, repo, vaultClient, metrics, logger)
-	sessions := auth.NewSessionManager(cfg.SessionSecret, cfg.SessionTTL, cfg.CookieSecure)
+	sessions := auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, cfg.CookieSecure)
 	limiters := ratelimit.NewRegistry()
 	app := server.New(server.Dependencies{
 		Config:   cfg,
@@ -78,6 +78,7 @@ func main() {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	errCh := make(chan error, 1)
