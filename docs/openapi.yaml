@@ -15,6 +15,7 @@ tags:
   - name: Current User
   - name: Secret Links
   - name: Recipient
+  - name: Email Settings
   - name: Dashboard
   - name: Users
   - name: API Clients
@@ -121,7 +122,10 @@ paths:
     post:
       tags: [Secret Links]
       summary: Create one-time secret link
-      description: Requires `secret:create`. Values in `payload` and legacy `secret` are encrypted and never returned by metadata APIs.
+      description: >
+        Requires `secret:create`. Values in `payload` and legacy `secret` are encrypted and never returned by metadata APIs.
+        Optional SMTP delivery is disabled unless `delivery.email.send=true` or the compatibility alias `send_email=true`
+        is explicitly provided; API clients also need `email:send`.
       security:
         - ApiClientAuth: []
         - LegacyAdminBearer: []
@@ -133,8 +137,21 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateSecretRequest'
             examples:
+              linkOnly:
+                summary: Generate link only
+                value:
+                  title: Merchant login
+                  expires_in_seconds: 86400
+                  payload:
+                    type: structured
+                    fields:
+                      - name: username
+                        label: Username
+                        value: example-username
+                        sensitive: false
+                        multiline: false
               usernamePassword:
-                summary: Username and password
+                summary: Username/password and send email
                 value:
                   title: Merchant login
                   expires_in_seconds: 86400
@@ -151,8 +168,14 @@ paths:
                         value: example-password
                         sensitive: true
                         multiline: false
+                  delivery:
+                    email:
+                      send: true
+                      to: merchant@example.com
+                      recipient_name: Merchant Operations
+                      use_default_template: true
               apiKeyOnly:
-                summary: API key only
+                summary: API key only and send email
                 value:
                   title: Merchant API key
                   expires_in_seconds: 3600
@@ -164,6 +187,54 @@ paths:
                         value: example-api-key
                         sensitive: true
                         multiline: false
+                  delivery:
+                    email:
+                      send: true
+                      to: api-owner@example.com
+                      use_default_template: true
+              combinedCustomEmail:
+                summary: Combined credentials with custom subject and message
+                value:
+                  title: Merchant production credentials
+                  description: Initial merchant access
+                  recipient_reference: merchant-1001
+                  expires_in_seconds: 86400
+                  payload:
+                    type: structured
+                    fields:
+                      - name: username
+                        label: Username
+                        value: example-user
+                        sensitive: false
+                        multiline: false
+                      - name: password
+                        label: Password
+                        value: example-password
+                        sensitive: true
+                        multiline: false
+                      - name: api_key
+                        label: API Key
+                        value: example-api-key
+                        sensitive: true
+                        multiline: false
+                  delivery:
+                    email:
+                      send: true
+                      to: merchant@example.com
+                      recipient_name: Merchant Operations
+                      use_default_template: false
+                      subject: '{{product_name}} secure access'
+                      message: "Hello {{recipient_name}},\n\nYour secure credentials are available using the one-time link below:\n\n{{secure_link}}\n\nThe link expires at {{expires_at}}.\n\nRegards,\n{{sender_name}}"
+              compatibilityAlias:
+                summary: Compatibility fields
+                value:
+                  title: Alias example
+                  expires_in_seconds: 3600
+                  payload:
+                    type: text
+                    text: EXAMPLE_SETTING=true
+                  send_email: true
+                  recipient_email: merchant@example.com
       responses:
         '201':
           description: One-time link created.
@@ -171,12 +242,58 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreateSecretResponse'
+              examples:
+                linkOnly:
+                  summary: Link only
+                  value:
+                    id: 00000000-0000-4000-8000-000000000101
+                    url: http://localhost:8080/s#example-token
+                    status: active
+                    expires_at: '2026-07-21T12:00:00Z'
+                    delivery:
+                      email:
+                        requested: false
+                        status: not_requested
+                emailSent:
+                  summary: Email sent
+                  value:
+                    id: 00000000-0000-4000-8000-000000000102
+                    url: http://localhost:8080/s#example-token
+                    status: active
+                    expires_at: '2026-07-21T12:00:00Z'
+                    delivery:
+                      email:
+                        requested: true
+                        status: sent
+                        to: m***@example.com
+                        sent_at: '2026-07-20T12:00:02Z'
+                        template_source: per_delivery
+                smtpRuntimeFailure:
+                  summary: Secret created, SMTP failed
+                  value:
+                    id: 00000000-0000-4000-8000-000000000103
+                    url: http://localhost:8080/s#example-token
+                    status: active
+                    expires_at: '2026-07-21T12:00:00Z'
+                    delivery:
+                      email:
+                        requested: true
+                        status: failed
+                        error_code: SMTP_DELIVERY_FAILED
+                        to: m***@example.com
+                        template_source: global_default
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/EmailError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
     get:
       tags: [Secret Links]
       summary: List secret metadata
@@ -279,6 +396,51 @@ paths:
                 $ref: '#/components/schemas/ConsumeResponse'
         '410':
           $ref: '#/components/responses/SecretUnavailable'
+  /api/v1/secret-links/send-email:
+    post:
+      tags: [Secret Links]
+      summary: Retry one-time link email from immediate creation flow
+      description: >
+        Requires `email:send`. The raw token must be supplied in the JSON body and is only available to the creator
+        immediately after link creation. Historical resend is unavailable because SecureShare never stores raw tokens
+        or full one-time URLs. Browser sessions require CSRF.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryEmailRequest'
+            examples:
+              immediateRetry:
+                summary: Retry from immediate creation result
+                value:
+                  token: raw-token-held-only-in-memory
+                  to: merchant@example.com
+                  recipient_name: Merchant Operations
+                  use_default_template: false
+                  subject: '{{product_name}} secure access'
+                  message: "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the secure package."
+      responses:
+        '200':
+          description: Retry delivery result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/SecretUnavailable'
+        '422':
+          $ref: '#/components/responses/EmailError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/dashboard:
     get:
       tags: [Dashboard]
@@ -295,6 +457,140 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DashboardResponse'
+  /api/v1/settings/email:
+    get:
+      tags: [Email Settings]
+      summary: Read safe SMTP settings
+      description: Admin-only. SMTP password and Vault ciphertext are never returned.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: Safe email settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Email Settings]
+      summary: Update encrypted SMTP settings
+      description: >
+        Admin-only. `smtp_password` is write-only and encrypted with Vault Transit before storage.
+        Empty `smtp_password` preserves the existing password unless `clear_smtp_password=true`.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEmailSettingsRequest'
+      responses:
+        '200':
+          description: Updated safe email settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailSettings'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/settings/email/test-connection:
+    post:
+      tags: [Email Settings]
+      summary: Test SMTP connection
+      description: Admin-only. Validates DNS/TCP/TLS or STARTTLS/authentication without sending email.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: SMTP connection test result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SMTPConnectionTestResult'
+  /api/v1/settings/email/send-test:
+    post:
+      tags: [Email Settings]
+      summary: Send safe SMTP test email
+      description: Admin-only and rate-limited to 5 per 15 minutes per admin. The message contains no secrets or one-time links.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendTestEmailRequest'
+      responses:
+        '200':
+          description: Test delivery result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SMTPConnectionTestResult'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/settings/email/template-preview:
+    post:
+      tags: [Email Settings]
+      summary: Preview safe email template rendering
+      description: Admin-only. Uses fake placeholder values and never creates a secret or raw token.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailTemplateOverride'
+      responses:
+        '200':
+          description: Rendered preview using fake values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderedEmailTemplate'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+  /api/v1/settings/email/enable:
+    post:
+      tags: [Email Settings]
+      summary: Enable SMTP delivery
+      description: Admin-only. Fails if required SMTP settings are invalid.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: Enabled safe email settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailSettings'
+  /api/v1/settings/email/disable:
+    post:
+      tags: [Email Settings]
+      summary: Disable SMTP delivery
+      description: Admin-only. Existing links continue to work; no new email is sent while disabled.
+      security:
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      responses:
+        '200':
+          description: Disabled safe email settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailSettings'
   /api/v1/admin/cleanup:
     post:
       tags: [Operations]
@@ -881,9 +1177,19 @@ components:
           minimum: 0
           maximum: 20
           default: 5
+        delivery:
+          $ref: '#/components/schemas/DeliveryRequest'
+        send_email:
+          type: boolean
+          description: Compatibility alias for `delivery.email.send`. Nested `delivery.email` takes precedence.
+          default: false
+        recipient_email:
+          type: string
+          format: email
+          description: Compatibility alias for `delivery.email.to`.
     CreateSecretResponse:
       type: object
-      required: [id, url, status, expires_at]
+      required: [id, url, status, expires_at, delivery]
       properties:
         id:
           type: string
@@ -899,6 +1205,101 @@ components:
         expires_at:
           type: string
           format: date-time
+        delivery:
+          $ref: '#/components/schemas/DeliveryResult'
+    DeliveryRequest:
+      type: object
+      properties:
+        email:
+          $ref: '#/components/schemas/EmailDeliveryRequest'
+    EmailDeliveryRequest:
+      type: object
+      properties:
+        send:
+          type: boolean
+          description: Explicitly send the one-time link by SMTP. Defaults to false.
+          default: false
+        to:
+          type: string
+          format: email
+          description: Recipient email address. Required when `send=true`.
+          example: merchant@example.com
+        recipient_name:
+          type: string
+          maxLength: 255
+          example: Merchant Operations
+        use_default_template:
+          type: boolean
+          description: Use the global default template instead of per-delivery subject/message.
+          default: true
+        subject:
+          type: string
+          maxLength: 255
+          description: Optional per-delivery subject. Subject placeholders are limited to `{{secret_title}}`, `{{product_name}}`, and `{{sender_name}}`.
+          example: '{{product_name}} secure access'
+        message:
+          type: string
+          maxLength: 10240
+          description: Plain-text per-delivery message. Unknown placeholders are rejected and HTML is escaped.
+          example: "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the secure package."
+    EmailTemplateOverride:
+      type: object
+      properties:
+        subject:
+          type: string
+          maxLength: 255
+        message:
+          type: string
+          maxLength: 10240
+        footer_text:
+          type: string
+          maxLength: 2048
+    DeliveryResult:
+      type: object
+      required: [email]
+      properties:
+        email:
+          $ref: '#/components/schemas/EmailDeliveryResult'
+    EmailDeliveryResult:
+      type: object
+      required: [requested, status]
+      properties:
+        requested:
+          type: boolean
+        status:
+          type: string
+          enum: [not_requested, sent, failed]
+        error_code:
+          type: string
+          enum: [SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED]
+        to:
+          type: string
+          description: Masked recipient address, never the raw address.
+          example: m***@example.com
+        sent_at:
+          type: string
+          format: date-time
+        template_source:
+          type: string
+          enum: [fallback, global_default, per_delivery]
+    RetryEmailRequest:
+      allOf:
+        - $ref: '#/components/schemas/EmailTemplateOverride'
+        - type: object
+          required: [token, to]
+          properties:
+            token:
+              type: string
+              writeOnly: true
+              description: Raw one-time token from the immediate creation result only. Do not place it in the URL.
+            to:
+              type: string
+              format: email
+            recipient_name:
+              type: string
+              maxLength: 255
+            use_default_template:
+              type: boolean
     SecretMetadata:
       type: object
       required: [id, status, expires_at, created_by, created_at, updated_at, password_protected, failed_attempts, max_failed_attempts, payload_type, payload_field_count, payload_contains_sensitive]
@@ -1087,6 +1488,166 @@ components:
               type: integer
             audit_deleted:
               type: integer
+    EmailSettings:
+      type: object
+      required: [id, enabled, encryption_mode, connection_timeout_seconds, send_timeout_seconds, default_subject, default_message, password_configured, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        enabled:
+          type: boolean
+        smtp_host:
+          type: string
+          description: SMTP host. Returned only as configured operational metadata.
+          example: smtp.example.local
+        smtp_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          example: 587
+        encryption_mode:
+          type: string
+          enum: [starttls, tls, none]
+          description: "'none' is development-only and rejected in production."
+        smtp_username:
+          type: string
+          description: SMTP username if configured. Password is never returned.
+          example: smtp-user
+        from_name:
+          type: string
+          example: SecureShare
+        from_email:
+          type: string
+          format: email
+          example: secureshare@example.local
+        reply_to_email:
+          type: string
+          format: email
+          example: support@example.local
+        connection_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+        send_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 120
+        default_subject:
+          type: string
+          maxLength: 255
+        default_message:
+          type: string
+          maxLength: 10240
+        footer_text:
+          type: string
+          maxLength: 2048
+        password_configured:
+          type: boolean
+        updated_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpdateEmailSettingsRequest:
+      type: object
+      required: [enabled, smtp_host, smtp_port, encryption_mode, from_email, connection_timeout_seconds, send_timeout_seconds, default_subject, default_message]
+      properties:
+        enabled:
+          type: boolean
+        smtp_host:
+          type: string
+          example: smtp.example.local
+        smtp_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          example: 587
+        encryption_mode:
+          type: string
+          enum: [starttls, tls, none]
+        smtp_username:
+          type: string
+        smtp_password:
+          type: string
+          writeOnly: true
+          description: Encrypted with Vault Transit before storage. Empty value preserves the existing password.
+        clear_smtp_password:
+          type: boolean
+          default: false
+        from_name:
+          type: string
+        from_email:
+          type: string
+          format: email
+        reply_to_email:
+          type: string
+          format: email
+        connection_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 5
+        send_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 120
+          default: 10
+        default_subject:
+          type: string
+          maxLength: 255
+          example: A secure one-time secret has been shared with you
+        default_message:
+          type: string
+          maxLength: 10240
+          example: "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the secure package."
+        footer_text:
+          type: string
+          maxLength: 2048
+    SMTPConnectionTestResult:
+      type: object
+      required: [ok, result, encryption_mode, duration_ms]
+      properties:
+        ok:
+          type: boolean
+        result:
+          type: string
+          enum: [success, failed]
+        error_category:
+          type: string
+          enum: [SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED]
+        encryption_mode:
+          type: string
+          enum: [starttls, tls, none]
+        duration_ms:
+          type: integer
+    SendTestEmailRequest:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+          format: email
+          example: admin@example.local
+    RenderedEmailTemplate:
+      type: object
+      required: [subject, text, html, template_source]
+      properties:
+        subject:
+          type: string
+        text:
+          type: string
+          description: Plain-text preview using fake values.
+        html:
+          type: string
+          description: Escaped HTML preview using fake values. Render in a sandboxed frame.
+        template_source:
+          type: string
+          enum: [fallback, global_default, per_delivery]
     User:
       type: object
       required: [id, username, email, role, status, force_password_change, created_at, updated_at]
@@ -1187,7 +1748,7 @@ components:
           type: array
           items:
             type: string
-            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read']
+            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read', 'email:send']
         last_used_at:
           type: string
           format: date-time
@@ -1212,7 +1773,7 @@ components:
           minItems: 1
           items:
             type: string
-            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read']
+            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read', 'email:send']
         expires_at:
           type: string
           format: date-time
@@ -1232,9 +1793,13 @@ components:
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNAUTHORIZED, FORBIDDEN, SECRET_UNAVAILABLE, RATE_LIMITED, PAYLOAD_TOO_LARGE, INTERNAL_ERROR, DEPENDENCY_UNAVAILABLE]
+          enum: [INVALID_REQUEST, UNAUTHORIZED, FORBIDDEN, SECRET_UNAVAILABLE, RATE_LIMITED, PAYLOAD_TOO_LARGE, EMAIL_DELIVERY_NOT_CONFIGURED, SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED, INTERNAL_ERROR, DEPENDENCY_UNAVAILABLE]
         message:
           type: string
+    EmailErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      description: Stable email configuration, preflight, or SMTP delivery error category. Raw SMTP server responses are not returned.
     HealthResponse:
       type: object
       required: [status]
@@ -1266,11 +1831,34 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Forbidden:
-      description: CSRF validation failed.
+      description: Permission or CSRF validation failed.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Request exceeded an in-memory rate limit. Retry with backoff.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    EmailError:
+      description: Email configuration, validation, or delivery preflight failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/EmailErrorResponse'
+          examples:
+            smtpDisabled:
+              summary: SMTP disabled or unavailable
+              value:
+                code: EMAIL_DELIVERY_NOT_CONFIGURED
+                message: Email delivery is not configured or enabled.
+            runtimeFailure:
+              summary: SMTP runtime failure category in create response
+              value:
+                code: SMTP_DELIVERY_FAILED
+                message: Email delivery failed.
     SecretUnavailable:
       description: Secret is invalid, expired, revoked, locked, unknown, or already consumed.
       content:

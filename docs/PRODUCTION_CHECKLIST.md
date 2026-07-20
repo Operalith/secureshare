@@ -11,6 +11,7 @@ Use this checklist before exposing SecureShare outside a local development envir
 - [ ] `APP_BASE_URL` uses the public `https://` origin.
 - [ ] Strong `SECURESHARE_ADMIN_API_KEY` generated and stored in the secret manager for temporary legacy compatibility.
 - [ ] Scoped API clients created for integrations.
+- [ ] `email:send` scope granted only to integrations that need email delivery.
 - [ ] `LEGACY_ADMIN_API_KEY_ENABLED=false` after legacy integrations migrate.
 - [ ] `OPENAPI_PUBLIC=false` unless public API metadata is explicitly approved.
 - [ ] Swagger UI served from local assets only.
@@ -41,6 +42,13 @@ Use this checklist before exposing SecureShare outside a local development envir
 - [ ] Session secrets rotated from bootstrap value.
 - [ ] Token pepper backed up securely and excluded from routine rotation.
 - [ ] Monitoring alerts configured for readiness, Vault errors, latency, rate limits, login failures, CSRF failures, cleanup duration, and active link spikes.
+- [ ] SMTP configured through `/admin/settings/email` if email delivery is enabled.
+- [ ] SMTP password entered through encrypted settings UI and not stored in committed files.
+- [ ] SMTP uses `starttls` or `tls`; unencrypted `none` mode is not used in production.
+- [ ] SMTP connection test and safe test email succeeded.
+- [ ] Email template preview reviewed with fake values.
+- [ ] Logs/APM/proxy captures verified to exclude recipient emails, rendered email bodies, SMTP credentials, raw SMTP responses, raw tokens, and full one-time URLs.
+- [ ] Operators understand synchronous v1 email behavior and no historical resend without the raw token.
 
 ## Deployment Gate
 
@@ -66,6 +74,8 @@ curl -fsS https://secureshare.example.com/metrics
 
 Inspect application, reverse proxy, Vault audit, and APM logs for the known canary values used by `scripts/security-test.sh`. No canary secret, raw token, API key, password, Vault ciphertext, or Authorization header should appear.
 
+When SMTP is enabled, also inspect logs for test recipient addresses, rendered email body text, SMTP password canaries, and full fragment URLs.
+
 ## Explicit MVP Limits
 
 - Rate limiting is in memory and is single-instance.
@@ -73,4 +83,6 @@ Inspect application, reverse proxy, Vault audit, and APM logs for the known cana
 - OIDC, LDAP, SSO, and MFA are not implemented.
 - Redis-backed shared rate limiting is not implemented.
 - Horizontal app replicas require shared rate limiting and PostgreSQL connectivity for session storage.
-- Email delivery, SMS OTP, and multi-tenant isolation are not implemented.
+- SMS OTP and multi-tenant isolation are not implemented.
+- Email delivery is synchronous and has no asynchronous queue.
+- Historical email resend is unavailable without the raw token.

@@ -15,6 +15,8 @@ SecureShare protects sensitive values during internal handoff to recipients. It 
 - Request IP hash pepper
 - API client secrets
 - Optional link passwords
+- SMTP password ciphertext and decrypted SMTP password during send/test
+- Rendered email content and recipient addresses
 - Vault token and Transit key material
 - PostgreSQL ciphertext and metadata
 
@@ -23,6 +25,7 @@ SecureShare protects sensitive values during internal handoff to recipients. It 
 - Browser to app: recipient token is sent only in a POST body after fragment removal.
 - App to PostgreSQL: stores metadata, token HMAC, status, and Vault ciphertext.
 - App to Vault: sends plaintext for encryption and ciphertext for decryption.
+- App to SMTP: sends only rendered one-time-link email, never secret payloads.
 - Reverse proxy and APM: must not capture request or response bodies for sensitive endpoints.
 
 ## Token Security
@@ -34,6 +37,8 @@ Rotating `TOKEN_HMAC_PEPPER` invalidates outstanding links.
 ## Vault Security
 
 The application uses Vault Transit and the dedicated key `secureshare`. Plaintext is sent to Vault for encryption before database insert. Only Vault ciphertext is stored.
+
+SMTP passwords are also encrypted with Vault Transit before PostgreSQL storage. The password is never returned through APIs, rendered back into HTML, logged, placed in audit metadata, or used as a metric label.
 
 Production requirements:
 
@@ -61,6 +66,9 @@ Reverse proxies, WAFs, APM tools, and trace collectors must disable request and 
 - `/api/v1/secret-links/prepare`
 - `/api/v1/secret-links/consume`
 - `/api/v1/auth/login`
+- `/api/v1/settings/email`
+- `/api/v1/settings/email/send-test`
+- `/api/v1/secret-links/send-email`
 
 ## Browser Protections
 
@@ -100,7 +108,17 @@ Machine-authenticated Basic and legacy bearer requests do not use browser CSRF p
 
 API clients authenticate with HTTP Basic auth using `client_id:client_secret`. Client secrets are generated with cryptographically secure randomness, shown only at creation or rotation, and stored only as `HMAC-SHA256(TOKEN_HMAC_PEPPER, client_id || client_secret)`.
 
-Supported scopes are `secret:create`, `secret:list`, `secret:read-metadata`, `secret:revoke`, and `dashboard:read`. API clients can be disabled, revoked, expired, and rotated. Basic auth is rejected in production unless the request is HTTPS or carries `X-Forwarded-Proto: https` from the trusted reverse proxy.
+Supported scopes are `secret:create`, `secret:list`, `secret:read-metadata`, `secret:revoke`, `dashboard:read`, and `email:send`. API clients can be disabled, revoked, expired, and rotated. Basic auth is rejected in production unless the request is HTTPS or carries `X-Forwarded-Proto: https` from the trusted reverse proxy.
+
+## Email Template and SMTP Security
+
+Email delivery is optional and must be explicit per secret. SMTP settings are admin-only. Supported transport modes are `starttls`, `tls`, and development-only `none`; production rejects unencrypted SMTP and never skips certificate validation.
+
+Templates are plain text with an allowlist of placeholders. The renderer rejects unknown placeholders, escapes HTML, and generates `text/plain` plus `text/html` bodies. It does not execute Go templates, functions, conditionals, loops, includes, JavaScript, forms, remote images, tracking pixels, external CSS, or external fonts.
+
+Every delivered email contains the fragment-based one-time link and security context, but never the secret payload, link password, token hash, Vault ciphertext, SMTP credentials, API client secrets, or rendered body in audit metadata. Email scanners do not consume links because recipients still must POST through the Reveal action.
+
+Historical email resend is unavailable because raw tokens are not stored. Immediate retry accepts the raw token only in a POST body while the creator page still holds it in memory; the token is not stored in localStorage, sessionStorage, cookies, PostgreSQL, or logs.
 
 ## Replay Prevention
 
@@ -118,6 +136,9 @@ The MVP includes in-memory fixed-window rate limiting:
 - Secret creation per actor
 - Token prepare per IP hash
 - Consume attempts per IP hash and token hash
+- Email delivery per authenticated actor
+- Email retry per authenticated actor and token hash
+- SMTP test email per admin
 
 Use Redis or another shared limiter before running multiple app replicas.
 
@@ -133,7 +154,7 @@ Audit events store only safe metadata:
 - Request ID
 - Timestamp
 
-Audit events never store secret payloads, raw tokens, generated URLs, passwords, API keys, Authorization headers, Vault ciphertext, or full user agents. Retention is controlled by `AUDIT_EVENT_RETENTION`.
+Audit events never store secret payloads, raw tokens, generated URLs, passwords, API keys, Authorization headers, Vault ciphertext, SMTP passwords, recipient emails, rendered email bodies, or full user agents. Retention is controlled by `AUDIT_EVENT_RETENTION`.
 
 ## Secret Lifecycle
 
@@ -190,4 +211,5 @@ Vault Transit key rotation should use Vault-native rotation. Existing ciphertext
 - Rate limits are in memory and are single-instance only.
 - Local Compose uses Vault dev mode.
 - Machine auth still supports the deprecated global admin API key while migrations to API clients complete.
-- OIDC, LDAP, MFA, Redis-backed rate limiting, email delivery, SMS OTP, and multi-tenant isolation are not implemented.
+- OIDC, LDAP, MFA, Redis-backed rate limiting, SMS OTP, and multi-tenant isolation are not implemented.
+- Email is sent synchronously in v1; there is no queue, Redis worker, or historical resend without the raw token.

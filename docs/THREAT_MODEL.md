@@ -10,6 +10,7 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Return generic recipient errors for invalid, consumed, expired, revoked, locked, or unknown links.
 - Keep admin and recipient UI free of historical secret contents.
 - Avoid logging request bodies, response bodies, raw tokens, passwords, API keys, ciphertext, and Authorization headers.
+- Avoid logging SMTP credentials, recipient emails, rendered email bodies, and raw SMTP responses.
 - Keep observability low-cardinality and non-sensitive.
 
 ## Assets
@@ -22,6 +23,8 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Request IP hash pepper.
 - Optional link passwords and Argon2id hashes.
 - Vault token and Transit key material.
+- SMTP password ciphertext and temporary decrypted SMTP password.
+- Rendered email content and recipient email addresses.
 - PostgreSQL ciphertext, metadata, and audit events.
 
 ## Trust Boundaries
@@ -32,6 +35,7 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Recipient browser to app: possession of URL fragment token and optional password authorizes one reveal.
 - App to PostgreSQL: metadata, token HMACs, state transitions, audit events, and Vault ciphertext.
 - App to Vault: plaintext encryption and ciphertext decryption.
+- App to SMTP: optional synchronous delivery of the one-time fragment link only.
 - Reverse proxy/APM/logging: trusted only if body capture and sensitive header logging are disabled.
 
 ## Main Abuse Cases
@@ -48,6 +52,10 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - API client credential brute force or leaked client secret.
 - Request or response body capture by middleware, reverse proxies, APM, or logs.
 - Public exposure of API metadata if `OPENAPI_PUBLIC=true` is enabled unintentionally.
+- SMTP misconfiguration or unencrypted SMTP in production.
+- Email template injection, external tracking, or accidental secret inclusion.
+- Email scanners opening links.
+- Retry attempts after raw token is no longer available.
 - Insider access to PostgreSQL backups.
 
 ## Existing Controls
@@ -66,8 +74,13 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Browser state-changing admin requests require CSRF tokens.
 - Machine-authenticated Basic and legacy bearer requests are exempt from browser CSRF.
 - API client secrets are shown only once, stored only as server-peppered HMACs, and can be disabled, revoked, expired, or rotated.
+- SMTP passwords are encrypted with Vault Transit and never returned through the UI/API.
+- Email delivery requires explicit request plus `email:send`.
+- Email templates use allowlisted placeholders, plain-text input, escaped generated HTML, and no external resources.
+- Email scanners do not consume secrets because reveal requires a POST after the recipient action.
+- Immediate email retry uses a POST body and does not store the raw token in browser storage or PostgreSQL.
 - OpenAPI and Swagger UI are authenticated by default and served from local assets with persisted authorization disabled.
-- Login, create, prepare, and consume paths are rate-limited in memory.
+- Login, create, prepare, consume, email delivery, email retry, and SMTP test paths are rate-limited in memory.
 - Security headers include no-store cache policy, no-referrer, CSP, frame denial, and nosniff.
 - Structured request logging uses request ID, path, status, latency, and keyed IP hash only.
 - Audit events store safe event types and safe metadata only.
@@ -78,7 +91,9 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - The deprecated global admin API key is less auditable than scoped API clients and should be disabled after migration.
 - OIDC, LDAP, SAML, and MFA are not implemented.
 - Redis-backed shared rate limiting is not implemented.
-- Email delivery, SMS OTP, and multi-tenant isolation are not implemented.
+- SMS OTP and multi-tenant isolation are not implemented.
+- Email delivery is synchronous, without an asynchronous queue.
+- Historical email resend is unavailable without the raw token.
 - Local Compose uses Vault dev mode and must not be used for production secrets.
 - Possession of an unprotected link is sufficient for reveal.
 - The app cannot prevent a recipient from copying the revealed secret after successful delivery.

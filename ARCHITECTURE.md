@@ -12,6 +12,7 @@ flowchart TB
     H["HTTP handlers and templates"]
     ID["Local users, sessions, and API clients"]
     S["Delivery service"]
+    E["Email settings and template service"]
     L["In-memory rate limiter"]
     C["Cleanup worker"]
     M["Prometheus metrics"]
@@ -19,15 +20,20 @@ flowchart TB
   end
   DB[("PostgreSQL")]
   V["Vault Transit"]
+  SMTP["Optional SMTP server"]
 
   A --> H
   R --> H
   H --> ID
   H --> L
   H --> S
+  H --> E
   ID --> DB
   S --> DB
   S --> V
+  E --> DB
+  E --> V
+  E --> SMTP
   S --> AU
   AU --> DB
   C --> DB
@@ -50,10 +56,12 @@ sequenceDiagram
   App->>Vault: encrypt plaintext with Transit
   Vault-->>App: vault ciphertext
   App->>DB: insert metadata, token_hash, ciphertext
-  App-->>Admin: URL with token in fragment
+App-->>Admin: URL with token in fragment
 ```
 
 The creation response never returns the plaintext secret.
+
+When email is requested, the app first verifies `email:send`, SMTP settings, recipient address, and safe template rendering. Deterministic failures return `422` before a secret row is created. After the secret is created, the app builds `APP_BASE_URL + "/s#<raw-token>"`, renders a plain-text template into `text/plain` and escaped `text/html`, and sends synchronously. Runtime SMTP failure keeps the secret active and returns `201 Created` with a failed delivery result and the URL for manual handoff.
 
 ## Reveal Flow
 
@@ -109,6 +117,8 @@ It does not store raw tokens or plaintext secrets.
 
 The `users`, `user_sessions`, and `api_clients` tables store local UI identities, only HMAC session-token hashes, and only HMAC API-client secret hashes. They do not store plaintext passwords, session tokens, or API client secrets.
 
+The `email_settings` table stores one global SMTP configuration. SMTP password is stored only as Vault Transit ciphertext. It does not store raw tokens, full one-time URLs, rendered email bodies, SMTP response bodies, or secret payloads.
+
 The `audit_events` table stores safe operational events only:
 
 - Event type and result
@@ -118,11 +128,13 @@ The `audit_events` table stores safe operational events only:
 - Request ID
 - Timestamp
 
-It does not store payloads, raw tokens, full URLs, passwords, API keys, Authorization headers, Vault ciphertext, or user-agent strings.
+It does not store payloads, raw tokens, full URLs, passwords, API keys, Authorization headers, Vault ciphertext, SMTP passwords, recipient emails, rendered email bodies, or user-agent strings.
 
 ## Failure Scenarios
 
 - Vault encrypt failure during create: no database row is created.
+- SMTP preflight failure during email create: no database row is created.
+- SMTP runtime failure after create: the row remains `active`; the response includes the URL and a safe failed delivery category.
 - Vault decrypt failure during consume: leased row is restored to `active`; the recipient receives `503`.
 - Duplicate consume: only one request can transition to `consuming`; others receive generic unavailable responses.
 - Expired token: cleanup marks it `expired`; API still returns generic unavailable.
@@ -140,11 +152,11 @@ The cleanup worker:
 
 ## Observability Model
 
-Metrics intentionally avoid delivery IDs, recipient references, titles, usernames, token hashes, or other high-cardinality labels. Fixed labels are used only for operation classes such as Vault operation, database operation, rate limit area, and cleanup deletion kind.
+Metrics intentionally avoid delivery IDs, recipient references, titles, usernames, token hashes, SMTP hosts, recipient addresses, or other high-cardinality labels. Fixed labels are used only for operation classes such as Vault operation, database operation, rate limit area, cleanup deletion kind, email template source, and safe SMTP error category.
 
 ## Scaling Considerations
 
-The app keeps browser sessions in PostgreSQL. The remaining single-instance state is the in-memory rate limiter. For multiple replicas, add:
+The app keeps browser sessions in PostgreSQL. The remaining single-instance state is the in-memory rate limiter, including email send/test/retry limits. For multiple replicas, add:
 
 - Redis-backed rate limiting
 - A trusted reverse proxy that sets client IP headers

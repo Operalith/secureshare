@@ -58,6 +58,14 @@ Stable codes:
 - `SECRET_UNAVAILABLE`
 - `RATE_LIMITED`
 - `PAYLOAD_TOO_LARGE`
+- `EMAIL_DELIVERY_NOT_CONFIGURED`
+- `SMTP_CONFIGURATION_ERROR`
+- `SMTP_CONNECTION_FAILED`
+- `SMTP_TLS_FAILED`
+- `SMTP_AUTHENTICATION_FAILED`
+- `SMTP_RECIPIENT_REJECTED`
+- `SMTP_TIMEOUT`
+- `SMTP_DELIVERY_FAILED`
 - `INTERNAL_ERROR`
 - `DEPENDENCY_UNAVAILABLE`
 
@@ -156,6 +164,8 @@ List items contain safe metadata only. Historical rows cannot reconstruct one-ti
 
 Requires `secret:create`.
 
+If email delivery is requested, the actor also needs `email:send`.
+
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/secret-links \
   -u "$CLIENT_ID:$CLIENT_SECRET" \
@@ -192,7 +202,17 @@ curl -sS -X POST http://localhost:8080/api/v1/secret-links \
     },
     "expires_in_seconds": 86400,
     "password": null,
-    "max_failed_attempts": 5
+    "max_failed_attempts": 5,
+    "delivery": {
+      "email": {
+        "send": true,
+        "to": "merchant@example.com",
+        "recipient_name": "Merchant Operations",
+        "use_default_template": false,
+        "subject": "{{product_name}} secure access",
+        "message": "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the secure package.\n\nExpires at {{expires_at}}."
+      }
+    }
   }'
 ```
 
@@ -203,11 +223,40 @@ Response:
   "id": "delivery-id",
   "url": "http://localhost:8080/s#secure-token",
   "status": "active",
-  "expires_at": "2026-07-21T10:30:00Z"
+  "expires_at": "2026-07-21T10:30:00Z",
+  "delivery": {
+    "email": {
+      "requested": true,
+      "status": "sent",
+      "to": "m***@example.com",
+      "sent_at": "2026-07-20T10:30:02Z",
+      "template_source": "per_delivery"
+    }
+  }
 }
 ```
 
 The secret is not returned.
+
+When email is not requested, `delivery.email.status` is `not_requested`. If SMTP is disabled or validation fails before creation, the API returns `422 EMAIL_DELIVERY_NOT_CONFIGURED` or `422 INVALID_REQUEST` and no secret is created. If SMTP fails after the secret is created, the response remains `201 Created` and includes the URL plus a failed delivery result:
+
+```json
+{
+  "id": "delivery-id",
+  "url": "http://localhost:8080/s#secure-token",
+  "status": "active",
+  "expires_at": "2026-07-21T10:30:00Z",
+  "delivery": {
+    "email": {
+      "requested": true,
+      "status": "failed",
+      "error_code": "SMTP_DELIVERY_FAILED",
+      "to": "m***@example.com",
+      "template_source": "global_default"
+    }
+  }
+}
+```
 
 The legacy `secret` field is still accepted for compatibility and is converted to the canonical encrypted payload internally. New clients should use `payload`.
 
@@ -216,6 +265,10 @@ Supported payload types:
 - `structured`: up to 50 named fields with `name`, `label`, `value`, `sensitive`, and `multiline`.
 - `text`: arbitrary plain text or configuration snippets as `text`.
 - `json`: JSON value as `value`.
+
+Compatibility aliases `send_email` and `recipient_email` map to `delivery.email.send` and `delivery.email.to`. The nested `delivery.email` object takes precedence when both forms are present.
+
+Allowed email message placeholders are `{{secure_link}}`, `{{secret_title}}`, `{{recipient_name}}`, `{{recipient_email}}`, `{{sender_name}}`, `{{expires_at}}`, `{{expires_in}}`, `{{product_name}}`, and `{{support_email}}`. Subject placeholders are limited to `{{secret_title}}`, `{{product_name}}`, and `{{sender_name}}`. The email body is plain text authored by the user and escaped into generated HTML; arbitrary HTML, scripts, external resources, tracking pixels, and secret placeholders are rejected or escaped.
 
 ## GET /api/v1/secret-links/{id}
 
@@ -296,8 +349,59 @@ Supported API client scopes:
 - `secret:read-metadata`
 - `secret:revoke`
 - `dashboard:read`
+- `email:send`
 
 Use `LEGACY_ADMIN_API_KEY_ENABLED=false` after integrations migrate to API clients.
+
+## Email Settings Administration
+
+Admin-only endpoints:
+
+- `GET /api/v1/settings/email`
+- `PUT /api/v1/settings/email`
+- `POST /api/v1/settings/email/test-connection`
+- `POST /api/v1/settings/email/send-test`
+- `POST /api/v1/settings/email/template-preview`
+- `POST /api/v1/settings/email/enable`
+- `POST /api/v1/settings/email/disable`
+
+`smtp_password` is write-only. Leaving it empty preserves the encrypted stored password; `clear_smtp_password=true` removes it. In production, `encryption_mode=none` is rejected.
+
+Safe update example:
+
+```json
+{
+  "enabled": true,
+  "smtp_host": "smtp.example.local",
+  "smtp_port": 587,
+  "encryption_mode": "starttls",
+  "smtp_username": "smtp-user",
+  "smtp_password": "example-smtp-password",
+  "from_name": "SecureShare",
+  "from_email": "secureshare@example.local",
+  "reply_to_email": "support@example.local",
+  "connection_timeout_seconds": 5,
+  "send_timeout_seconds": 10,
+  "default_subject": "A secure one-time secret has been shared with you",
+  "default_message": "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the secure package.",
+  "footer_text": "Contact {{support_email}} for help."
+}
+```
+
+Template preview uses fake values and never creates a secret or raw token.
+
+## POST /api/v1/secret-links/send-email
+
+Requires `email:send`. This endpoint exists only for immediate retry while the creator still has the raw token in memory. It accepts the token in the JSON body, never in the URL:
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/secret-links/send-email \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -H 'Content-Type: application/json' \
+  --data '{"token":"raw-token-held-only-in-memory","to":"merchant@example.com","message":"Use {{secure_link}}"}'
+```
+
+Retry revalidates that the secret is active, applies the email retry rate limit, and returns `delivery.email`. After refresh, SecureShare cannot reconstruct historical URLs.
 
 ## POST /api/v1/secret-links/prepare
 

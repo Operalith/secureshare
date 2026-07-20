@@ -30,7 +30,14 @@ required_paths = %w[
   /api/v1/secret-links/{id}/revoke
   /api/v1/secret-links/prepare
   /api/v1/secret-links/consume
+  /api/v1/secret-links/send-email
   /api/v1/dashboard
+  /api/v1/settings/email
+  /api/v1/settings/email/test-connection
+  /api/v1/settings/email/send-test
+  /api/v1/settings/email/template-preview
+  /api/v1/settings/email/enable
+  /api/v1/settings/email/disable
   /api/v1/users
   /api/v1/users/{id}
   /api/v1/users/{id}/reset-password
@@ -57,6 +64,15 @@ required_schemas = %w[
   StructuredSecretField
   TextSecretPayload
   JSONSecretPayload
+  DeliveryRequest
+  EmailDeliveryRequest
+  EmailTemplateOverride
+  EmailDeliveryResult
+  EmailSettings
+  UpdateEmailSettingsRequest
+  SMTPConnectionTestResult
+  SendTestEmailRequest
+  EmailErrorResponse
   CreateSecretRequest
   CreateSecretResponse
   SecretMetadata
@@ -87,6 +103,15 @@ raise 'structured field values must be writeOnly' unless field_value && field_va
 
 client_secret = schemas.dig('CreateAPIClientResponse', 'allOf', 1, 'properties', 'client_secret')
 raise 'client_secret must be writeOnly' unless client_secret && client_secret['writeOnly'] == true
+
+smtp_password = schemas.dig('UpdateEmailSettingsRequest', 'properties', 'smtp_password')
+raise 'smtp_password must be writeOnly' unless smtp_password && smtp_password['writeOnly'] == true
+
+delivery = schemas.dig('CreateSecretRequest', 'properties', 'delivery')
+raise 'CreateSecretRequest must document delivery.email' unless delivery && schemas.dig('DeliveryRequest', 'properties', 'email')
+
+scopes = schemas.dig('CreateAPIClientRequest', 'properties', 'scopes', 'items', 'enum')
+raise 'email:send scope must be documented' unless scopes&.include?('email:send')
 
 init = File.read(INIT_PATH)
 raise 'Swagger UI must disable persisted authorization' unless init.include?('persistAuthorization: false')

@@ -30,3 +30,34 @@ curl -fsS -X POST "${SECURESHARE_BASE_URL}/api/v1/secret-links" \
 ```
 
 The command prints only the one-time URL. Do not enable shell tracing while passing real secret payloads.
+
+Create a link and request email delivery:
+
+```bash
+curl -fsS -X POST "${SECURESHARE_BASE_URL}/api/v1/secret-links" \
+  -u "${SECURESHARE_CLIENT_ID}:${SECURESHARE_CLIENT_SECRET}" \
+  -H "Content-Type: application/json" \
+  --connect-timeout 5 \
+  --max-time 15 \
+  -d '{
+    "title": "Example login by email",
+    "expires_in_seconds": 3600,
+    "payload": {
+      "type": "structured",
+      "fields": [
+        {"name":"username","label":"Username","value":"example-user","sensitive":false,"multiline":false},
+        {"name":"password","label":"Password","value":"example-password","sensitive":true,"multiline":false}
+      ]
+    },
+    "delivery": {
+      "email": {
+        "send": true,
+        "to": "recipient@example.local",
+        "recipient_name": "Example Recipient",
+        "use_default_template": true
+      }
+    }
+  }'
+```
+
+The API client must include `email:send`, and SMTP must already be configured by an administrator.

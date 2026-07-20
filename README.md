@@ -10,7 +10,7 @@ The local stack runs with Go, PostgreSQL, and HashiCorp Vault Transit through Do
 cp .env.example .env
 docker compose up -d --build
 docker compose ps
-./scripts/smoke-test.sh
+make smoke
 ```
 
 The app is available at:
@@ -49,6 +49,7 @@ The Compose file also supplies development defaults, so `docker compose up -d --
 - Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, user management, API client management, system status, help, and light/dark mode.
 - Provides safe admin APIs for dashboard statistics, paginated metadata listing, idempotent revoke, and manual cleanup.
 - Supports scoped API clients with one-time client secret display, HMAC-hashed storage, expiration, disable, revoke, and rotation.
+- Supports optional administrator-managed SMTP settings, encrypted SMTP password storage, safe email templates, and explicit one-time-link delivery by email.
 - Serves local Swagger UI at `/docs` and raw OpenAPI 3.1 at `/openapi.yaml`.
 - Uses at least 256 bits of random token entropy.
 - Places the raw token in the URL fragment, for example `http://localhost:8080/s#token`, so browsers do not send it automatically in normal page requests.
@@ -67,9 +68,12 @@ flowchart LR
   B --> D["Vault Transit secureshare key"]
   E["Recipient browser"] --> B
   B --> F["Prometheus metrics"]
+  B --> G["Optional SMTP server"]
 ```
 
 The Go app renders the admin and recipient pages directly. There is no React, Node.js, external font, CDN, analytics script, or frontend build pipeline.
+
+Email delivery is optional. Administrators configure SMTP at `/admin/settings/email`; the SMTP password is encrypted with Vault Transit and is never returned by API or HTML. Create-secret requests send email only when `delivery.email.send=true` or the compatibility alias `send_email=true` is explicitly provided. API clients also need the `email:send` scope.
 
 ## One-Time Consumption
 
@@ -122,11 +126,15 @@ Swagger UI and the OpenAPI spec are authenticated by default. Set `OPENAPI_PUBLI
 
 1. Visit `http://localhost:8080/login`.
 2. Enter the bootstrap username and password.
-3. Create a secret at `/admin/secrets/new`.
-4. Copy the generated one-time URL.
-5. Optionally revoke the link before it is viewed.
+3. Optionally configure SMTP at `/admin/settings/email`.
+4. Create a secret at `/admin/secrets/new`.
+5. Choose Generate link only or Send link by email.
+6. Copy the generated one-time URL when manual delivery is needed.
+7. Optionally revoke the link before it is viewed.
 
 The admin interface never shows the original secret after creation. Historical rows never reconstruct delivery URLs because raw tokens are not stored.
+
+Email contains only the fragment-based one-time link, expiration context, and safe template text. It never includes the secret payload, link password, token hash, Vault ciphertext, SMTP credentials, or API client secrets. Link scanners and previews do not consume the secret; recipients must press Reveal to POST the token.
 
 ## Tests
 
@@ -134,21 +142,20 @@ The admin interface never shows the original secret after creation. Historical r
 make test
 make lint
 make openapi-validate
+make smoke
+make integration-test
 make security-test
 ```
 
-Integration tests expect the Compose stack:
+`make smoke`, `make integration-test`, and `make security-test` run against an isolated Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit on local-only ports. The wrapper tears the test stack and volumes down after each run so automated tests do not pollute the development dashboard or audit timeline.
+
+For optional development SMTP capture:
 
 ```bash
-docker compose up -d --build
-INTEGRATION_TESTS=1 go test ./tests -count=1
+docker compose --profile mailpit up -d mailpit
 ```
 
-Smoke test:
-
-```bash
-./scripts/smoke-test.sh
-```
+Mailpit is development-only and is not present in the production Compose file.
 
 The security test covers unauthorized create, invalid login, CSRF rejection, payload limits, invalid content types, first and second consume, concurrent consume, expired and revoked links, password throttling, security headers, cache prevention, and log leakage checks.
 
@@ -168,6 +175,8 @@ Changing `TOKEN_HMAC_PEPPER` invalidates existing unconsumed links because token
 - `health/ready` fails: check `docker compose logs app vault vault-bootstrap postgres`.
 - Vault bootstrap fails: verify `VAULT_TOKEN` matches the Vault dev root token.
 - API client returns `401`: verify the client is active, unexpired, has the required scope, and is using Basic auth as `client_id:client_secret`.
+- Email delivery returns `422`: configure and enable SMTP in `/admin/settings/email`, and ensure the API client has `email:send`.
+- Email delivery returns `201` with `delivery.email.status="failed"`: the secret was created; copy the returned URL and inspect SMTP settings/logs with redaction.
 - Create returns `503`: Vault is not ready or the Transit key is missing.
 - Consume returns `410`: the token is invalid, expired, revoked, locked, or already viewed. The response is intentionally generic.
 - Login fails locally: use the bootstrap user, default `admin` / `change-me-now`, or reset the local database volume.
@@ -190,4 +199,5 @@ Known MVP limitations:
 - Rate limits are in memory and are single-instance.
 - Local Vault runs in dev mode.
 - UI authentication uses local PostgreSQL users and sessions; machine authentication supports scoped API clients and the deprecated global admin API key.
-- OIDC, LDAP, MFA, Redis-backed limits, email delivery, SMS OTP, and multi-tenant isolation are not implemented yet.
+- OIDC, LDAP, MFA, Redis-backed limits, SMS OTP, asynchronous queue delivery, and multi-tenant isolation are not implemented yet.
+- Historical email resend is unavailable after refresh because raw tokens are not persisted.

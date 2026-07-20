@@ -14,6 +14,22 @@ make security-test
 
 Local Compose starts PostgreSQL, Vault dev mode, Vault Transit bootstrap, the Go app, and optional Prometheus.
 
+The automated test targets use a separate Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit. They do not use the development database or dashboard:
+
+```bash
+make smoke
+make integration-test
+make security-test
+```
+
+To inspect SMTP locally without sending real email, start the development-only Mailpit profile:
+
+```bash
+docker compose --profile mailpit up -d mailpit
+```
+
+Mailpit binds only to localhost by default and is not part of the production Compose file.
+
 ## Production Compose Example
 
 `docker-compose.production.yml` runs only the SecureShare app and optional Prometheus. It expects production PostgreSQL and Vault to be provided externally and does not expose PostgreSQL or Vault services.
@@ -37,6 +53,7 @@ BOOTSTRAP_ADMIN_EMAIL=admin@example.com
 BOOTSTRAP_ADMIN_PASSWORD=...
 OPENAPI_PUBLIC=false
 SWAGGER_UI_ENABLED=true
+DEVELOPER_EMAIL_DELIVERY_ENABLED=true
 ```
 
 Then start the app:
@@ -100,9 +117,26 @@ Production PostgreSQL should use:
 
 The database stores Vault ciphertext, token HMACs, Argon2id password hashes, and safe metadata. It does not store raw tokens or plaintext payloads.
 
+The `email_settings` table stores optional SMTP configuration and Vault ciphertext for the SMTP password. It does not store raw one-time URLs, rendered email bodies, raw SMTP responses, or secret payloads.
+
 ## API Clients
 
 Use the bootstrap administrator to create scoped API clients at `/admin/api-clients`, then store the one-time `client_secret` in the integration secret manager. New integrations should use Basic auth with `client_id:client_secret`; disable the legacy admin bearer key with `LEGACY_ADMIN_API_KEY_ENABLED=false` after migration.
+
+Grant `email:send` only to clients that need SMTP delivery. Clients without that scope can still create link-only secrets.
+
+## Production SMTP
+
+Configure SMTP from `/admin/settings/email` after deployment. Runtime SMTP credentials should be entered through the encrypted settings UI rather than stored in Compose environment files.
+
+Production requirements:
+
+- Use `starttls` or `tls`; `none` is rejected in production.
+- Keep certificate validation enabled; SecureShare has no skip-verify mode.
+- Use a dedicated sender identity and least-privilege SMTP credential.
+- Verify connection test and safe test email before enabling delivery.
+- Confirm logs, APM, and proxy captures do not include SMTP passwords, recipient emails, raw SMTP responses, rendered email bodies, raw tokens, or full fragment URLs.
+- Document that v1 sends synchronously and does not have a queue or historical resend.
 
 ## API Documentation
 
@@ -123,6 +157,8 @@ Prometheus scrapes `/metrics`. Current operational metrics include:
 - Cleanup duration.
 - Cleanup deletion counter with fixed `kind` label.
 - Stale consuming lease recovery counter.
+- SMTP connection/test counters and duration.
+- Email delivery requested/succeeded/failed/retry counters and duration with low-cardinality labels only.
 
 Alert on readiness failures, Vault error spikes, p95 Vault/database latency, sustained login failures, sustained CSRF failures, cleanup failures, and unexpected active secret growth.
 
@@ -134,4 +170,5 @@ Alert on readiness failures, Vault error spikes, p95 Vault/database latency, sus
 4. Deploy the new image.
 5. Verify `/health/ready`.
 6. Run smoke and security checks against the promoted endpoint.
-7. Watch metrics and logs for at least one cleanup interval.
+7. If SMTP is enabled, send a safe test email and a non-secret template preview.
+8. Watch metrics and logs for at least one cleanup interval.

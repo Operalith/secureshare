@@ -32,6 +32,19 @@
       }
     },
     {
+      "name": "Create secret and send email",
+      "request": {
+        "description": "Requires an API client with secret:create and email:send. SMTP must be configured and enabled by an administrator.",
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "url": "{{base_url}}/api/v1/secret-links",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Postman email example\",\n  \"expires_in_seconds\": 3600,\n  \"payload\": {\n    \"type\": \"structured\",\n    \"fields\": [\n      {\"name\":\"username\",\"label\":\"Username\",\"value\":\"example-user\",\"sensitive\":false,\"multiline\":false},\n      {\"name\":\"password\",\"label\":\"Password\",\"value\":\"example-password\",\"sensitive\":true,\"multiline\":false},\n      {\"name\":\"api_key\",\"label\":\"API Key\",\"value\":\"example-api-key\",\"sensitive\":true,\"multiline\":false}\n    ]\n  },\n  \"delivery\": {\n    \"email\": {\n      \"send\": true,\n      \"to\": \"recipient@example.local\",\n      \"recipient_name\": \"Example Recipient\",\n      \"use_default_template\": true\n    }\n  }\n}"
+        }
+      }
+    },
+    {
       "name": "List secrets",
       "request": {
         "method": "GET",

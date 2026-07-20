@@ -10,6 +10,7 @@ Sign in to `/login` with a local admin account and open `/admin/api-clients`. Cr
 - `secret:list` or `secret:read-metadata` for listing or reading metadata
 - `secret:revoke` for revocation
 - `dashboard:read` for dashboard metrics
+- `email:send` for optional SMTP delivery of one-time links
 
 Copy the `client_id` and `client_secret` immediately. The secret is shown only once.
 
@@ -114,15 +115,68 @@ Use one structured payload with multiple fields:
 }
 ```
 
-## 10. Expiration Behavior
+## 10. Optional Email Delivery
+
+SMTP is configured and enabled by an administrator at `/admin/settings/email`. Link creation without email remains the default. To send the one-time link by email, request the canonical nested model and make sure the API client has both `secret:create` and `email:send`:
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/secret-links \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Merchant production credentials",
+    "expires_in_seconds": 86400,
+    "payload": {
+      "type": "structured",
+      "fields": [
+        {"name":"username","label":"Username","value":"example-user","sensitive":false,"multiline":false},
+        {"name":"password","label":"Password","value":"example-password","sensitive":true,"multiline":false},
+        {"name":"api_key","label":"API Key","value":"example-api-key","sensitive":true,"multiline":false}
+      ]
+    },
+    "delivery": {
+      "email": {
+        "send": true,
+        "to": "merchant@example.com",
+        "recipient_name": "Merchant Operations",
+        "use_default_template": false,
+        "subject": "{{product_name}} secure access",
+        "message": "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the secure package.\n\nExpires at {{expires_at}}."
+      }
+    }
+  }'
+```
+
+Compatibility aliases are also accepted:
+
+```json
+{
+  "send_email": true,
+  "recipient_email": "merchant@example.com"
+}
+```
+
+If both aliases and `delivery.email` are present, the nested `delivery.email` values take precedence. Unknown placeholders are rejected before the secret is created.
+
+Supported message placeholders are `{{secure_link}}`, `{{secret_title}}`, `{{recipient_name}}`, `{{recipient_email}}`, `{{sender_name}}`, `{{expires_at}}`, `{{expires_in}}`, `{{product_name}}`, and `{{support_email}}`. Subjects allow only `{{secret_title}}`, `{{product_name}}`, and `{{sender_name}}`. Messages are plain text; SecureShare escapes HTML and generates `text/plain` plus `text/html` email parts. The secret payload, link password, SMTP credentials, token hash, and Vault ciphertext are never emailed.
+
+If SMTP is disabled or deterministically invalid, create returns `422 EMAIL_DELIVERY_NOT_CONFIGURED` and no secret is created. If the secret is created and SMTP later fails at runtime, the response is still `201 Created` with the one-time URL and `delivery.email.status="failed"` so the creator can copy the link manually.
+
+Historical resend is unavailable because raw tokens and full URLs are not stored. The immediate creation page can retry by POSTing the raw token held in memory to `/api/v1/secret-links/send-email`; after refresh or navigation, create a new link or deliver the copied URL manually.
+
+Do not log email request bodies, rendered email bodies, raw tokens, full URLs, recipient email addresses, SMTP errors, or API client secrets. Use caller-side idempotency when retrying create requests so a network timeout does not create multiple valid links.
+
+Production SMTP must use TLS or STARTTLS with certificate validation. The development-only `none` mode is rejected when `APP_ENV=production`.
+
+## 11. Expiration Behavior
 
 Set `expires_in_seconds` for each link. Expired, consumed, revoked, unknown, locked, and invalid tokens all return the same generic unavailable response.
 
-## 11. Password-Protected Links
+## 12. Password-Protected Links
 
 Set `password` on create to require a recipient password before reveal. Link passwords are hashed with Argon2id and never returned.
 
-## 12. Revocation
+## 13. Revocation
 
 Call:
 
@@ -131,11 +185,11 @@ curl -sS -X POST http://localhost:8080/api/v1/secret-links/$DELIVERY_ID/revoke \
   -u "$CLIENT_ID:$CLIENT_SECRET"
 ```
 
-## 13. Metadata and Listing
+## 14. Metadata and Listing
 
 Metadata endpoints return titles, status, expiration, creator, and safe payload summary fields only: `payload_type`, `payload_field_count`, and `payload_contains_sensitive`.
 
-## 14. Error Handling
+## 15. Error Handling
 
 Errors use:
 
@@ -143,29 +197,29 @@ Errors use:
 {"code":"INVALID_REQUEST","message":"Invalid request."}
 ```
 
-Treat `401` as missing credentials, invalid credentials, disabled/expired clients, or missing scope. Treat `410 SECRET_UNAVAILABLE` as terminal for recipient reveal attempts.
+Treat `401` as missing credentials, invalid credentials, disabled/expired clients, or missing scope. Treat `410 SECRET_UNAVAILABLE` as terminal for recipient reveal attempts. Treat `422 EMAIL_DELIVERY_NOT_CONFIGURED` as an administrator action item, not a retriable create failure.
 
-## 15. Rate Limits
+## 16. Rate Limits
 
-Create, prepare, consume, and login paths are rate-limited in memory. Retry `429` with backoff and jitter.
+Create, prepare, consume, login, SMTP test email, email delivery, and immediate email retry paths are rate-limited in memory. Retry `429` with backoff and jitter. Multi-instance deployments need a shared limiter.
 
-## 16. Retry Behavior
+## 17. Retry Behavior
 
 Do not blindly retry create requests if the first response status is unknown; you could create multiple valid links. Prefer application-level idempotency in the calling workflow.
 
-## 17. Idempotency Guidance
+## 18. Idempotency Guidance
 
 SecureShare does not currently expose an idempotency-key API. Store your own operation ID and delivery ID mapping when integrations need exactly-once creation semantics.
 
-## 18. Logging and Secret Redaction
+## 19. Logging and Secret Redaction
 
-Never log request bodies, response bodies from consume, raw tokens, full one-time URLs, API client secrets, Authorization headers, or recipient passwords.
+Never log request bodies, response bodies from consume, raw tokens, full one-time URLs, rendered email bodies, recipient emails, API client secrets, Authorization headers, SMTP credentials, or recipient passwords.
 
-## 19. Production HTTPS Requirements
+## 20. Production HTTPS Requirements
 
 Use HTTPS for all API-client requests. In production, Basic auth is accepted only when the request is HTTPS or the trusted reverse proxy sends `X-Forwarded-Proto: https`.
 
-## 20. Example Integrations
+## 21. Example Integrations
 
 See:
 
