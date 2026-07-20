@@ -954,6 +954,25 @@ th {
   background: var(--surface-strong);
 }
 
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.preview-grid article {
+  display: grid;
+  gap: 10px;
+}
+
+.preview-grid iframe {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .docs-grid {
   width: min(1440px, calc(100% - 40px));
 }
@@ -1140,6 +1159,7 @@ pre {
   .result-grid,
   .metadata-grid,
   .help-grid,
+  .preview-grid,
   .security-summary {
     grid-template-columns: 1fr;
   }

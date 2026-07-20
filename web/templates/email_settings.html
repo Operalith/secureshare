@@ -67,6 +67,10 @@
               <label class="span-two">Footer text<textarea name="footer_text" rows="4" maxlength="2048">{{ .Settings.FooterText }}</textarea></label>
             </div>
             <div class="alert-panel">
+              <strong>Supported placeholders</strong>
+              <span class="technical-value">{{ range allowedEmailPlaceholders }}{{ . }} {{ end }}</span>
+            </div>
+            <div class="alert-panel">
               <strong>Production TLS requirement</strong>
               <span>Production rejects unencrypted SMTP and never skips certificate validation. Use STARTTLS or TLS with a valid sender address.</span>
             </div>
@@ -75,10 +79,25 @@
             <div class="actions">
               <button type="submit" data-loading-text="Saving...">Save settings</button>
               <button type="button" class="secondary" data-email-action="test-connection">Test connection</button>
+              <button type="button" class="secondary" data-email-preview>Preview template</button>
               <button type="button" class="secondary" data-email-action="enable">Enable</button>
               <button type="button" class="secondary" data-email-action="disable">Disable</button>
             </div>
           </form>
+        </section>
+
+        <section class="panel hidden" data-email-preview-panel>
+          <div class="section-heading"><div><p class="eyebrow">Safe preview</p><h2>Email template preview</h2></div><span class="badge neutral">fake values</span></div>
+          <div class="preview-grid">
+            <article>
+              <h3>Plain text</h3>
+              <pre class="technical-value" data-email-preview-text></pre>
+            </article>
+            <article>
+              <h3>Rendered HTML</h3>
+              <iframe sandbox="" title="Email HTML preview" data-email-preview-html></iframe>
+            </article>
+          </div>
         </section>
 
         <section class="panel">

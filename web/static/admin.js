@@ -647,6 +647,40 @@
     });
 
     document.addEventListener("click", async (event) => {
+      const previewButton = event.target.closest("[data-email-preview]");
+      if (previewButton && settingsForm) {
+        const status = qs("[data-email-status]", settingsForm);
+        const panel = qs("[data-email-preview-panel]");
+        const text = qs("[data-email-preview-text]");
+        const htmlFrame = qs("[data-email-preview-html]");
+        setButtonLoading(previewButton, true);
+        try {
+          const payload = settingsPayload(settingsForm);
+          const response = await fetch("/api/v1/settings/email/template-preview", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: csrfHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({
+              subject: payload.default_subject,
+              message: payload.default_message,
+              footer_text: payload.footer_text,
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            if (status) status.textContent = body.message || "Template preview could not be generated.";
+            return;
+          }
+          if (text) text.textContent = `Subject: ${body.subject}\n\n${body.text}`;
+          if (htmlFrame) htmlFrame.setAttribute("srcdoc", body.html || "");
+          panel?.classList.remove("hidden");
+          panel?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } finally {
+          setButtonLoading(previewButton, false);
+        }
+        return;
+      }
+
       const button = event.target.closest("[data-email-action]");
       if (!button) return;
       const action = button.dataset.emailAction;

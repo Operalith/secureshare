@@ -499,6 +499,18 @@ func TestEmailSettingsAPIRedactsPasswordAndRequiresAdmin(t *testing.T) {
 	if strings.Contains(pageRec.Body.String(), "smtp-redaction-canary") || strings.Contains(pageRec.Body.String(), "vault:v1:") {
 		t.Fatalf("email settings page leaked secret material: %s", pageRec.Body.String())
 	}
+	previewReq := httptest.NewRequest(http.MethodPost, "/api/v1/settings/email/template-preview", strings.NewReader(`{"subject":"{{product_name}} preview","message":"Hello {{recipient_name}},\n\n{{secure_link}}"}`))
+	previewReq.Header.Set("Content-Type", "application/json")
+	previewReq.Header.Set("X-CSRF-Token", csrf)
+	previewReq.AddCookie(cookie)
+	previewRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(previewRec, previewReq)
+	if previewRec.Code != http.StatusOK {
+		t.Fatalf("template preview = %d, want 200: %s", previewRec.Code, previewRec.Body.String())
+	}
+	if !strings.Contains(previewRec.Body.String(), "preview-token-not-real") || strings.Contains(previewRec.Body.String(), "canary-secret-value") {
+		t.Fatalf("template preview did not use fake safe values: %s", previewRec.Body.String())
+	}
 
 	disableReq := httptest.NewRequest(http.MethodPost, "/api/v1/settings/email/disable", nil)
 	disableReq.Header.Set("X-CSRF-Token", csrf)

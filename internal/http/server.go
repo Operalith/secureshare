@@ -80,6 +80,7 @@ func New(deps Dependencies) *Server {
 			}
 			return value[:8]
 		},
+		"allowedEmailPlaceholders": secureemail.AllowedPlaceholders,
 	}
 	templates := template.Must(template.New("").Funcs(funcs).ParseGlob(templatePattern()))
 	return &Server{
@@ -1221,6 +1222,17 @@ func (s *Server) handleEmailSettingsActionAPI(w http.ResponseWriter, r *http.Req
 			eventType = "email.test_delivery_failed"
 		}
 		s.recordEmailAudit(r, actor, eventType, result.Result)
+		s.writeJSON(w, http.StatusOK, result)
+	case action == "template-preview" && r.Method == http.MethodPost:
+		var req secureemail.PreviewRequest
+		if !s.decodeJSON(w, r, 16*1024, &req) {
+			return
+		}
+		result, err := s.email.Preview(r.Context(), req)
+		if err != nil {
+			s.writeEmailError(w, err)
+			return
+		}
 		s.writeJSON(w, http.StatusOK, result)
 	case action == "enable" && r.Method == http.MethodPost:
 		settings, err := s.email.SetEnabled(r.Context(), actor.UserID, true)
