@@ -27,11 +27,13 @@ func (r *Repository) Insert(ctx context.Context, params InsertParams) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO secret_deliveries (
 			id, token_hash, encrypted_payload, title, description, recipient_reference,
-			status, expires_at, password_hash, max_failed_attempts, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			status, expires_at, password_hash, max_failed_attempts, created_by,
+			payload_type, payload_field_count, payload_contains_sensitive
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 	`, params.ID, params.TokenHash, params.EncryptedPayload, emptyToNil(params.Title),
 		emptyToNil(params.Description), emptyToNil(params.RecipientReference), params.Status,
-		params.ExpiresAt, params.PasswordHash, params.MaxFailedAttempts, params.CreatedBy)
+		params.ExpiresAt, params.PasswordHash, params.MaxFailedAttempts, params.CreatedBy,
+		params.PayloadType, params.PayloadFieldCount, params.ContainsSensitive)
 	return err
 }
 
@@ -42,12 +44,14 @@ func (r *Repository) Metadata(ctx context.Context, id uuid.UUID) (Metadata, erro
 	err := r.db.QueryRow(ctx, `
 		SELECT id, COALESCE(title,''), COALESCE(description,''), COALESCE(recipient_reference,''),
 			status, expires_at, consumed_at, revoked_at, created_by, created_at, updated_at,
-			password_hash IS NOT NULL, failed_attempts, max_failed_attempts
+			password_hash IS NOT NULL, failed_attempts, max_failed_attempts,
+			payload_type, payload_field_count, payload_contains_sensitive
 		FROM secret_deliveries
 		WHERE id = $1
 	`, id).Scan(&item.ID, &item.Title, &item.Description, &item.RecipientReference,
 		&item.Status, &item.ExpiresAt, &item.ConsumedAt, &item.RevokedAt, &item.CreatedBy,
-		&item.CreatedAt, &item.UpdatedAt, &item.PasswordProtected, &item.FailedAttempts, &item.MaxFailedAttempts)
+		&item.CreatedAt, &item.UpdatedAt, &item.PasswordProtected, &item.FailedAttempts, &item.MaxFailedAttempts,
+		&item.PayloadType, &item.PayloadFieldCount, &item.ContainsSensitive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Metadata{}, ErrSecretUnavailable
 	}
@@ -80,7 +84,8 @@ func (r *Repository) List(ctx context.Context, opts ListOptions) (ListResult, er
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(title,''), COALESCE(description,''), COALESCE(recipient_reference,''),
 			status, expires_at, consumed_at, revoked_at, created_by, created_at, updated_at,
-			password_hash IS NOT NULL, failed_attempts, max_failed_attempts
+			password_hash IS NOT NULL, failed_attempts, max_failed_attempts,
+			payload_type, payload_field_count, payload_contains_sensitive
 		FROM secret_deliveries
 		%s
 		ORDER BY %s %s, id DESC
@@ -96,7 +101,8 @@ func (r *Repository) List(ctx context.Context, opts ListOptions) (ListResult, er
 		var item Metadata
 		if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.RecipientReference,
 			&item.Status, &item.ExpiresAt, &item.ConsumedAt, &item.RevokedAt, &item.CreatedBy,
-			&item.CreatedAt, &item.UpdatedAt, &item.PasswordProtected, &item.FailedAttempts, &item.MaxFailedAttempts); err != nil {
+			&item.CreatedAt, &item.UpdatedAt, &item.PasswordProtected, &item.FailedAttempts, &item.MaxFailedAttempts,
+			&item.PayloadType, &item.PayloadFieldCount, &item.ContainsSensitive); err != nil {
 			return ListResult{}, err
 		}
 		items = append(items, item)

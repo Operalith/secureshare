@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,19 +19,116 @@ import (
 func TestValidateCreateRequestEnforcesExpirationAndPayloadLimits(t *testing.T) {
 	svc := testService(&fakeStore{}, &fakeVault{})
 	valid := CreateRequest{Secret: json.RawMessage(`{"ok":true}`), ExpiresInSeconds: 60, MaxFailedAttempts: 5}
-	if err := svc.validateCreate(valid); err != nil {
+	payload, _, err := svc.canonicalPayload(valid)
+	if err != nil {
+		t.Fatalf("canonical payload failed: %v", err)
+	}
+	if err := svc.validateCreate(valid, payload); err != nil {
 		t.Fatalf("valid request failed: %v", err)
 	}
 	tooLong := valid
 	tooLong.ExpiresInSeconds = int64((8 * 24 * time.Hour).Seconds())
-	if err := svc.validateCreate(tooLong); !errors.Is(err, ErrInvalidRequest) {
+	if err := svc.validateCreate(tooLong, payload); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("expected invalid ttl, got %v", err)
 	}
 	tooLarge := valid
 	tooLarge.Secret = json.RawMessage(`"` + strings.Repeat("x", config.DefaultMaxSecretBytes+1) + `"`)
-	if err := svc.validateCreate(tooLarge); !errors.Is(err, ErrPayloadTooLarge) {
+	largePayload, _, err := svc.canonicalPayload(tooLarge)
+	if err != nil {
+		t.Fatalf("large canonical payload failed: %v", err)
+	}
+	if err := svc.validateCreate(tooLarge, largePayload); !errors.Is(err, ErrPayloadTooLarge) {
 		t.Fatalf("expected payload too large, got %v", err)
 	}
+}
+
+func TestCanonicalPayloadSupportsMixedCredentialShapes(t *testing.T) {
+	svc := testService(&fakeStore{}, &fakeVault{})
+	cases := map[string]CreateRequest{
+		"username password": {
+			Payload: &SecretPayload{Type: "structured", Fields: []StructuredSecretField{
+				{Name: "username", Label: "Username", Value: "merchant-1001"},
+				{Name: "password", Label: "Password", Value: "temporary-password", Sensitive: true},
+			}},
+		},
+		"api key only": {
+			Payload: &SecretPayload{Type: "structured", Fields: []StructuredSecretField{
+				{Name: "api_key", Label: "API Key", Value: "example-api-key", Sensitive: true},
+			}},
+		},
+		"combined": {
+			Payload: &SecretPayload{Type: "structured", Fields: []StructuredSecretField{
+				{Name: "username", Label: "Username", Value: "merchant-1001"},
+				{Name: "password", Label: "Password", Value: "temporary-password", Sensitive: true},
+				{Name: "api_key", Label: "API Key", Value: "example-api-key", Sensitive: true},
+			}},
+		},
+		"client credentials": {
+			Payload: &SecretPayload{Type: "structured", Fields: []StructuredSecretField{
+				{Name: "client_id", Label: "Client ID", Value: "client-123"},
+				{Name: "client_secret", Label: "Client Secret", Value: "client-secret", Sensitive: true},
+			}},
+		},
+		"text": {Payload: &SecretPayload{Type: "text", Text: "line one\nline two"}},
+		"json": {Payload: &SecretPayload{Type: "json", Value: json.RawMessage(`{"username":"merchant-1001","password":"temporary-password"}`)}},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw, summary, err := svc.canonicalPayload(req)
+			if err != nil {
+				t.Fatalf("canonical payload failed: %v", err)
+			}
+			if !json.Valid(raw) {
+				t.Fatal("canonical payload was not JSON")
+			}
+			if req.Payload.Type == "structured" && summary.FieldCount != len(req.Payload.Fields) {
+				t.Fatalf("field count = %d, want %d", summary.FieldCount, len(req.Payload.Fields))
+			}
+		})
+	}
+}
+
+func TestCanonicalPayloadRejectsInvalidStructuredFields(t *testing.T) {
+	svc := testService(&fakeStore{}, &fakeVault{})
+	for _, req := range []CreateRequest{
+		{Payload: &SecretPayload{Type: "structured"}},
+		{Payload: &SecretPayload{Type: "structured", Fields: []StructuredSecretField{{Name: "bad name", Label: "Bad", Value: "x"}}}},
+		{Payload: &SecretPayload{Type: "structured", Fields: []StructuredSecretField{{Name: "duplicate", Value: "1"}, {Name: "DUPLICATE", Value: "2"}}}},
+		{Payload: &SecretPayload{Type: "structured", Fields: tooManyFields()}},
+	} {
+		if _, _, err := svc.canonicalPayload(req); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("expected invalid request, got %v", err)
+		}
+	}
+}
+
+func TestLegacySecretRequestsRemainCompatible(t *testing.T) {
+	svc := testService(&fakeStore{}, &fakeVault{})
+	raw, summary, err := svc.canonicalPayload(CreateRequest{Secret: json.RawMessage(`{"value":"legacy"}`)})
+	if err != nil {
+		t.Fatalf("legacy canonical payload failed: %v", err)
+	}
+	if summary.Type != "json" {
+		t.Fatalf("legacy payload type = %q, want json", summary.Type)
+	}
+	canonical, legacy, err := normalizeConsumedPayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(canonical), `"type":"json"`) {
+		t.Fatalf("canonical payload did not contain json type: %s", canonical)
+	}
+	if string(legacy) != `{"value":"legacy"}` {
+		t.Fatalf("legacy projection = %s", legacy)
+	}
+}
+
+func tooManyFields() []StructuredSecretField {
+	fields := make([]StructuredSecretField, 51)
+	for i := range fields {
+		fields[i] = StructuredSecretField{Name: "field" + strconv.Itoa(i), Value: "x"}
+	}
+	return fields
 }
 
 func TestSecretUnavailableUsesGenericErrorCode(t *testing.T) {

@@ -260,6 +260,9 @@ func (s *uiStore) Metadata(context.Context, uuid.UUID) (delivery.Metadata, error
 		PasswordProtected:  true,
 		FailedAttempts:     0,
 		MaxFailedAttempts:  5,
+		PayloadType:        "structured",
+		PayloadFieldCount:  3,
+		ContainsSensitive:  true,
 	}, nil
 }
 

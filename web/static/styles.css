@@ -701,9 +701,23 @@ textarea {
 
 .secure-field-row {
   display: grid;
-  grid-template-columns: minmax(160px, 0.55fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(150px, 0.55fr) minmax(220px, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
+}
+
+.checkbox-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-line input {
+  width: auto;
+}
+
+.compact-check {
+  white-space: nowrap;
 }
 
 .row-actions,

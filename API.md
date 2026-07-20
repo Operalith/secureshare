@@ -148,10 +148,31 @@ curl -sS -X POST http://localhost:8080/api/v1/secret-links \
     "title": "Merchant production credentials",
     "description": "Initial access credentials",
     "recipient_reference": "merchant-1001",
-    "secret": {
-      "username": "merchant-1001",
-      "password": "temporary-password",
-      "api_key": "example-api-key"
+    "payload": {
+      "type": "structured",
+      "fields": [
+        {
+          "name": "username",
+          "label": "Username",
+          "value": "example-username",
+          "sensitive": false,
+          "multiline": false
+        },
+        {
+          "name": "password",
+          "label": "Password",
+          "value": "example-password",
+          "sensitive": true,
+          "multiline": false
+        },
+        {
+          "name": "api_key",
+          "label": "API Key",
+          "value": "example-api-key",
+          "sensitive": true,
+          "multiline": false
+        }
+      ]
     },
     "expires_in_seconds": 86400,
     "password": null,
@@ -171,6 +192,14 @@ Response:
 ```
 
 The secret is not returned.
+
+The legacy `secret` field is still accepted for compatibility and is converted to the canonical encrypted payload internally. New clients should use `payload`.
+
+Supported payload types:
+
+- `structured`: up to 50 named fields with `name`, `label`, `value`, `sensitive`, and `multiline`.
+- `text`: arbitrary plain text or configuration snippets as `text`.
+- `json`: JSON value as `value`.
 
 ## GET /api/v1/secret-links/{id}
 
@@ -241,13 +270,25 @@ Success:
 
 ```json
 {
+  "payload": {
+    "type": "structured",
+    "fields": [
+      {
+        "name": "username",
+        "label": "Username",
+        "value": "example-username",
+        "sensitive": false,
+        "multiline": false
+      }
+    ]
+  },
   "secret": {
-    "username": "merchant-1001",
-    "password": "temporary-password",
-    "api_key": "example-api-key"
+    "username": "example-username"
   }
 }
 ```
+
+`secret` is a backward-compatible projection. New clients should read `payload`.
 
 Unavailable:
 

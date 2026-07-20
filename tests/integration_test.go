@@ -51,6 +51,50 @@ func TestSecretLifecycleIntegration(t *testing.T) {
 	}
 }
 
+func TestFlexibleStructuredPayloadIntegration(t *testing.T) {
+	client := integrationClient(t)
+	marker := "integration-api-key-value"
+	created := client.create(t, map[string]any{
+		"title":              "Mixed credential payload",
+		"expires_in_seconds": 900,
+		"payload": map[string]any{
+			"type": "structured",
+			"fields": []map[string]any{
+				{"name": "username", "label": "Username", "value": "merchant-1001", "sensitive": false, "multiline": false},
+				{"name": "password", "label": "Password", "value": "temporary-password", "sensitive": true, "multiline": false},
+				{"name": "api_key", "label": "API Key", "value": marker, "sensitive": true, "multiline": false},
+			},
+		},
+	})
+
+	status, _, raw := client.getJSON(t, "/api/v1/secret-links/"+created.ID, map[string]string{
+		"Authorization": "Bearer " + client.adminKey,
+	})
+	if status != 200 {
+		t.Fatalf("metadata status = %d, want 200", status)
+	}
+	if strings.Contains(raw, marker) || strings.Contains(raw, "temporary-password") {
+		t.Fatal("metadata response contained secret field values")
+	}
+
+	status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token}, nil)
+	if status != 200 {
+		t.Fatalf("consume = %d %#v, want 200", status, body)
+	}
+	payload := body["payload"].(map[string]any)
+	if payload["type"] != "structured" {
+		t.Fatalf("payload type = %#v, want structured", payload["type"])
+	}
+	fields := payload["fields"].([]any)
+	if len(fields) != 3 {
+		t.Fatalf("fields = %d, want 3", len(fields))
+	}
+	legacy := body["secret"].(map[string]any)
+	if legacy["api_key"] != marker || legacy["username"] != "merchant-1001" {
+		t.Fatalf("legacy projection = %#v", legacy)
+	}
+}
+
 func TestConcurrentConsumeIntegration(t *testing.T) {
 	client := integrationClient(t)
 	created := client.create(t, map[string]any{

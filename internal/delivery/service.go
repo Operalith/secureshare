@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	securecrypto "secureshare/internal/crypto"
 	"secureshare/internal/observability"
 )
+
+var structuredFieldNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 type Vault interface {
 	Encrypt(context.Context, []byte) (string, error)
@@ -56,7 +59,11 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 	if actorID == "" {
 		return CreateResponse{}, ErrUnauthorized
 	}
-	if err := s.validateCreate(req); err != nil {
+	payloadBytes, payloadSummary, err := s.canonicalPayload(req)
+	if err != nil {
+		return CreateResponse{}, err
+	}
+	if err := s.validateCreate(req, payloadBytes); err != nil {
 		return CreateResponse{}, err
 	}
 
@@ -69,7 +76,7 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 		return CreateResponse{}, fmt.Errorf("%w: token hash failed", ErrInternal)
 	}
 	vaultStart := time.Now()
-	encrypted, err := s.vault.Encrypt(ctx, req.Secret)
+	encrypted, err := s.vault.Encrypt(ctx, payloadBytes)
 	s.observeVault(vaultStart, "encrypt")
 	if err != nil {
 		s.metrics.VaultErrors.Inc()
@@ -108,6 +115,9 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 		PasswordHash:       passwordHash,
 		MaxFailedAttempts:  maxFailed,
 		CreatedBy:          actorID,
+		PayloadType:        payloadSummary.Type,
+		PayloadFieldCount:  payloadSummary.FieldCount,
+		ContainsSensitive:  payloadSummary.ContainsSensitive,
 	})
 	s.observeDatabase(dbStart, "insert_delivery")
 	if err != nil {
@@ -258,12 +268,13 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 		s.metrics.SecretUnavailable.Inc()
 		return ConsumeResponse{}, ErrSecretUnavailable
 	}
-	if !json.Valid(plaintext) {
+	canonical, legacySecret, err := normalizeConsumedPayload(plaintext)
+	if err != nil {
 		return ConsumeResponse{}, fmt.Errorf("%w: decrypted payload was invalid", ErrInternal)
 	}
 	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &item.ID, Type: "secret.consumed", Result: "success"})
 	s.metrics.SecretConsumed.Inc()
-	return ConsumeResponse{Secret: json.RawMessage(plaintext)}, nil
+	return ConsumeResponse{Secret: legacySecret, Payload: canonical}, nil
 }
 
 func (s *Service) recordAudit(ctx context.Context, event AuditEventRecord) {
@@ -292,14 +303,14 @@ func (s *Service) observeDatabase(start time.Time, operation string) {
 	s.metrics.DatabaseDuration.WithLabelValues(operation).Observe(time.Since(start).Seconds())
 }
 
-func (s *Service) validateCreate(req CreateRequest) error {
-	if len(req.Secret) == 0 || string(req.Secret) == "null" {
+func (s *Service) validateCreate(req CreateRequest, payload []byte) error {
+	if len(payload) == 0 || string(payload) == "null" {
 		return ErrInvalidRequest
 	}
-	if !json.Valid(req.Secret) {
+	if !json.Valid(payload) {
 		return ErrInvalidRequest
 	}
-	if int64(len(req.Secret)) > s.cfg.MaxSecretBytes {
+	if int64(len(payload)) > s.cfg.MaxSecretBytes {
 		return ErrPayloadTooLarge
 	}
 	if len(req.Title) > 255 || len(req.Description) > 2000 || len(req.RecipientReference) > 255 {
@@ -312,6 +323,140 @@ func (s *Service) validateCreate(req CreateRequest) error {
 		return ErrInvalidRequest
 	}
 	return nil
+}
+
+func (s *Service) canonicalPayload(req CreateRequest) ([]byte, PayloadSummary, error) {
+	if req.Payload == nil {
+		if len(req.Secret) == 0 || string(req.Secret) == "null" {
+			return nil, PayloadSummary{}, ErrInvalidRequest
+		}
+		payload, err := legacyPayload(req.Secret)
+		if err != nil {
+			return nil, PayloadSummary{}, err
+		}
+		return marshalPayload(payload)
+	}
+	return marshalPayload(*req.Payload)
+}
+
+func legacyPayload(secret json.RawMessage) (SecretPayload, error) {
+	if !json.Valid(secret) {
+		return SecretPayload{}, ErrInvalidRequest
+	}
+	var text string
+	if err := json.Unmarshal(secret, &text); err == nil {
+		return SecretPayload{Type: "text", Text: text}, nil
+	}
+	return SecretPayload{Type: "json", Value: append(json.RawMessage(nil), secret...)}, nil
+}
+
+func marshalPayload(payload SecretPayload) ([]byte, PayloadSummary, error) {
+	normalized, summary, err := normalizePayload(payload)
+	if err != nil {
+		return nil, PayloadSummary{}, err
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, PayloadSummary{}, ErrInvalidRequest
+	}
+	return raw, summary, nil
+}
+
+func normalizePayload(payload SecretPayload) (SecretPayload, PayloadSummary, error) {
+	payload.Type = strings.TrimSpace(strings.ToLower(payload.Type))
+	switch payload.Type {
+	case "structured":
+		if len(payload.Fields) == 0 || len(payload.Fields) > 50 {
+			return SecretPayload{}, PayloadSummary{}, ErrInvalidRequest
+		}
+		seen := map[string]bool{}
+		containsSensitive := false
+		fields := make([]StructuredSecretField, 0, len(payload.Fields))
+		for _, field := range payload.Fields {
+			name := strings.TrimSpace(field.Name)
+			label := strings.TrimSpace(field.Label)
+			if label == "" {
+				label = name
+			}
+			key := strings.ToLower(name)
+			if name == "" || len(name) > 100 || len(label) > 100 || seen[key] || !structuredFieldNamePattern.MatchString(name) || hasControlCharacters(name) {
+				return SecretPayload{}, PayloadSummary{}, ErrInvalidRequest
+			}
+			seen[key] = true
+			if field.Sensitive {
+				containsSensitive = true
+			}
+			fields = append(fields, StructuredSecretField{
+				Name:      name,
+				Label:     label,
+				Value:     field.Value,
+				Sensitive: field.Sensitive,
+				Multiline: field.Multiline,
+			})
+		}
+		return SecretPayload{Type: "structured", Fields: fields}, PayloadSummary{Type: "structured", FieldCount: len(fields), ContainsSensitive: containsSensitive}, nil
+	case "text":
+		return SecretPayload{Type: "text", Text: payload.Text}, PayloadSummary{Type: "text"}, nil
+	case "json":
+		if len(payload.Value) == 0 || !json.Valid(payload.Value) {
+			return SecretPayload{}, PayloadSummary{}, ErrInvalidRequest
+		}
+		return SecretPayload{Type: "json", Value: append(json.RawMessage(nil), payload.Value...)}, PayloadSummary{Type: "json"}, nil
+	default:
+		return SecretPayload{}, PayloadSummary{}, ErrInvalidRequest
+	}
+}
+
+func hasControlCharacters(value string) bool {
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeConsumedPayload(plaintext []byte) (json.RawMessage, json.RawMessage, error) {
+	if !json.Valid(plaintext) {
+		return nil, nil, ErrInternal
+	}
+	var payload SecretPayload
+	if err := json.Unmarshal(plaintext, &payload); err == nil {
+		if normalized, _, normErr := normalizePayload(payload); normErr == nil {
+			canonical, err := json.Marshal(normalized)
+			if err != nil {
+				return nil, nil, err
+			}
+			legacy, err := legacyProjection(normalized)
+			return canonical, legacy, err
+		}
+	}
+	payload, err := legacyPayload(plaintext)
+	if err != nil {
+		return nil, nil, err
+	}
+	canonical, _, err := marshalPayload(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	return canonical, append(json.RawMessage(nil), plaintext...), nil
+}
+
+func legacyProjection(payload SecretPayload) (json.RawMessage, error) {
+	switch payload.Type {
+	case "structured":
+		values := map[string]string{}
+		for _, field := range payload.Fields {
+			values[field.Name] = field.Value
+		}
+		return json.Marshal(values)
+	case "text":
+		return json.Marshal(payload.Text)
+	case "json":
+		return append(json.RawMessage(nil), payload.Value...), nil
+	default:
+		return nil, ErrInternal
+	}
 }
 
 func (s *Service) ttl(seconds int64) time.Duration {

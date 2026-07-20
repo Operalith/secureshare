@@ -1,5 +1,5 @@
 (() => {
-  const MAX_FIELDS = 20;
+  const MAX_FIELDS = 50;
   const MAX_SECRET_BYTES = 32768;
 
   function qs(selector, root = document) {
@@ -128,36 +128,51 @@
     function rowTemplate() {
       const row = document.createElement("div");
       row.className = "secure-field-row";
-      row.innerHTML = '<input name="kv_key" placeholder="Field name" autocomplete="off" aria-label="Field key"><span class="input-with-action"><input name="kv_value" type="password" placeholder="Value" autocomplete="off" aria-label="Field value" data-secret-input><button type="button" class="ghost compact" data-toggle-secret aria-label="Show value">Show</button></span><div class="row-actions"><button type="button" class="icon-button" data-move-row="up" aria-label="Move field up">↑</button><button type="button" class="icon-button" data-move-row="down" aria-label="Move field down">↓</button><button type="button" class="icon-button danger-lite" data-remove-row aria-label="Remove field">×</button></div>';
+      row.innerHTML = '<input name="kv_key" placeholder="field_name" list="field-presets" autocomplete="off" aria-label="Field key"><span class="input-with-action"><input name="kv_value" type="password" placeholder="Value" autocomplete="off" aria-label="Field value" data-secret-input><button type="button" class="ghost compact" data-toggle-secret aria-label="Show value">Show</button></span><label class="checkbox-line compact-check"><input type="checkbox" name="kv_sensitive" checked> Sensitive</label><label class="checkbox-line compact-check"><input type="checkbox" name="kv_multiline"> Multiline</label><div class="row-actions"><button type="button" class="icon-button" data-move-row="up" aria-label="Move field up">↑</button><button type="button" class="icon-button" data-move-row="down" aria-label="Move field down">↓</button><button type="button" class="icon-button danger-lite" data-remove-row aria-label="Remove field">×</button></div>';
       setupSecretToggles(row);
       return row;
     }
 
-    function structuredSecret() {
+    function structuredPayload() {
       const keys = qsa('input[name="kv_key"]', form);
       const values = qsa('input[name="kv_value"]', form);
+      const sensitive = qsa('input[name="kv_sensitive"]', form);
+      const multiline = qsa('input[name="kv_multiline"]', form);
       const seen = new Set();
-      const secret = {};
+      const fields = [];
       for (let index = 0; index < keys.length; index += 1) {
         const key = keys[index].value.trim();
         if (!key) throw new Error("Every structured field needs a key.");
+        if (!/^[A-Za-z0-9_.-]+$/.test(key)) throw new Error(`Invalid field name: ${key}`);
         const normalized = key.toLowerCase();
         if (seen.has(normalized)) throw new Error(`Duplicate key: ${key}`);
         seen.add(normalized);
-        secret[key] = values[index].value;
+        fields.push({
+          name: key,
+          label: labelForField(key),
+          value: values[index].value,
+          sensitive: Boolean(sensitive[index]?.checked),
+          multiline: Boolean(multiline[index]?.checked),
+        });
       }
-      return secret;
+      return { type: "structured", fields };
     }
 
-    function plainSecret(data) {
+    function labelForField(name) {
+      return name
+        .replace(/[_.-]+/g, " ")
+        .replace(/\b\w/g, (value) => value.toUpperCase());
+    }
+
+    function plainPayload(data) {
       const raw = String(data.get("secret_plain") || "");
       if (!raw.trim()) throw new Error("Plain text secret content is required.");
-      if (data.get("plain_format") === "json") return JSON.parse(raw);
-      return raw;
+      if (data.get("plain_format") === "json") return { type: "json", value: JSON.parse(raw) };
+      return { type: "text", text: raw };
     }
 
-    function validateSize(secret) {
-      const size = new TextEncoder().encode(JSON.stringify(secret)).length;
+    function validateSize(payload) {
+      const size = new TextEncoder().encode(JSON.stringify(payload)).length;
       if (size > MAX_SECRET_BYTES) throw new Error("Secret payload exceeds the 32 KB limit.");
     }
 
@@ -218,10 +233,10 @@
       setStatus("");
       resultPanel?.classList.add("hidden");
       const data = new FormData(form);
-      let secret;
+      let payloadModel;
       try {
-        secret = mode() === "structured" ? structuredSecret() : plainSecret(data);
-        validateSize(secret);
+        payloadModel = mode() === "structured" ? structuredPayload() : plainPayload(data);
+        validateSize(payloadModel);
       } catch (error) {
         setStatus(error.message);
         return;
@@ -231,7 +246,7 @@
         title: String(data.get("title") || ""),
         description: String(data.get("description") || ""),
         recipient_reference: String(data.get("recipient_reference") || ""),
-        secret,
+        payload: payloadModel,
         expires_in_seconds: Number(data.get("expires_in_seconds") || 86400),
         password: password ? password : null,
         max_failed_attempts: Number(data.get("max_failed_attempts") || 5),

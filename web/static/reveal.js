@@ -88,17 +88,17 @@
     button.disabled = false;
   }
 
-  function renderField(key, value) {
+  function renderField(field) {
     const row = document.createElement("div");
     row.className = "revealed-field";
 
     const name = document.createElement("strong");
-    name.textContent = key;
+    name.textContent = field.label || field.name;
 
     const secret = document.createElement("span");
     secret.className = "secret-value technical-value";
-    secret.dataset.value = String(value);
-    secret.textContent = "••••••••••••";
+    secret.dataset.value = String(field.value);
+    secret.textContent = field.sensitive ? "••••••••••••" : secret.dataset.value;
 
     const actions = document.createElement("div");
     actions.className = "row-actions";
@@ -106,6 +106,7 @@
     reveal.type = "button";
     reveal.className = "ghost compact";
     reveal.textContent = "Show";
+    reveal.hidden = !field.sensitive;
     reveal.addEventListener("click", () => {
       const showing = secret.textContent === secret.dataset.value;
       secret.textContent = showing ? "••••••••••••" : secret.dataset.value;
@@ -117,24 +118,37 @@
     copy.textContent = "Copy";
     copy.addEventListener("click", async () => {
       await navigator.clipboard.writeText(secret.dataset.value);
-      toast(`${key} copied.`);
+      toast(`${field.label || field.name} copied.`);
     });
     actions.append(reveal, copy);
     row.append(name, secret, actions);
     return row;
   }
 
-  function renderSecret(secret) {
+  function renderSecret(payload, legacySecret) {
     structuredWrap.textContent = "";
     structuredWrap.classList.add("hidden");
     plainWrap.classList.add("hidden");
-    revealedText = typeof secret === "string" ? secret : JSON.stringify(secret, null, 2);
 
-    if (secret && typeof secret === "object" && !Array.isArray(secret)) {
-      Object.entries(secret).forEach(([key, value]) => structuredWrap.appendChild(renderField(key, typeof value === "string" ? value : JSON.stringify(value))));
+    if (payload?.type === "structured" && Array.isArray(payload.fields)) {
+      revealedText = payload.fields.map((field) => `${field.label || field.name}: ${field.value}`).join("\n");
+      payload.fields.forEach((field) => structuredWrap.appendChild(renderField(field)));
       structuredWrap.classList.remove("hidden");
       return;
     }
+    if (payload?.type === "json") {
+      revealedText = JSON.stringify(payload.value, null, 2);
+      secretCode.textContent = revealedText;
+      plainWrap.classList.remove("hidden");
+      return;
+    }
+    if (payload?.type === "text") {
+      revealedText = payload.text || "";
+      secretCode.textContent = revealedText;
+      plainWrap.classList.remove("hidden");
+      return;
+    }
+    revealedText = typeof legacySecret === "string" ? legacySecret : JSON.stringify(legacySecret, null, 2);
     secretCode.textContent = revealedText;
     plainWrap.classList.remove("hidden");
   }
@@ -158,7 +172,7 @@
       unavailable();
       return;
     }
-    renderSecret(body.secret);
+    renderSecret(body.payload, body.secret);
     secretWrap.classList.remove("hidden");
     setState("Secret revealed once.");
   }

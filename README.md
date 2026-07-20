@@ -39,6 +39,7 @@ The Compose file also supplies development defaults, so `docker compose up -d --
 ## What It Does
 
 - Creates one-time secret links with optional title, description, recipient reference, password protection, and expiration.
+- Supports flexible encrypted payloads: structured fields, API keys, username/password combinations, text, JSON, and configuration snippets.
 - Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, system status, help, and light/dark mode.
 - Provides safe admin APIs for dashboard statistics, paginated metadata listing, idempotent revoke, and manual cleanup.
 - Uses at least 256 bits of random token entropy.

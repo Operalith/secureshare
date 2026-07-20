@@ -19,10 +19,32 @@ type CreateRequest struct {
 	Title              string          `json:"title"`
 	Description        string          `json:"description"`
 	RecipientReference string          `json:"recipient_reference"`
-	Secret             json.RawMessage `json:"secret"`
+	Secret             json.RawMessage `json:"secret,omitempty"`
+	Payload            *SecretPayload  `json:"payload,omitempty"`
 	ExpiresInSeconds   int64           `json:"expires_in_seconds"`
 	Password           *string         `json:"password"`
 	MaxFailedAttempts  int             `json:"max_failed_attempts"`
+}
+
+type SecretPayload struct {
+	Type   string                  `json:"type"`
+	Fields []StructuredSecretField `json:"fields,omitempty"`
+	Text   string                  `json:"text,omitempty"`
+	Value  json.RawMessage         `json:"value,omitempty"`
+}
+
+type StructuredSecretField struct {
+	Name      string `json:"name"`
+	Label     string `json:"label"`
+	Value     string `json:"value"`
+	Sensitive bool   `json:"sensitive"`
+	Multiline bool   `json:"multiline"`
+}
+
+type PayloadSummary struct {
+	Type              string `json:"payload_type"`
+	FieldCount        int    `json:"payload_field_count"`
+	ContainsSensitive bool   `json:"payload_contains_sensitive"`
 }
 
 type CreateResponse struct {
@@ -47,6 +69,9 @@ type Metadata struct {
 	PasswordProtected  bool       `json:"password_protected"`
 	FailedAttempts     int        `json:"failed_attempts"`
 	MaxFailedAttempts  int        `json:"max_failed_attempts"`
+	PayloadType        string     `json:"payload_type"`
+	PayloadFieldCount  int        `json:"payload_field_count"`
+	ContainsSensitive  bool       `json:"payload_contains_sensitive"`
 }
 
 type ListOptions struct {
@@ -141,6 +166,9 @@ type InsertParams struct {
 	PasswordHash       *string
 	MaxFailedAttempts  int
 	CreatedBy          string
+	PayloadType        string
+	PayloadFieldCount  int
+	ContainsSensitive  bool
 }
 
 type ConsumeCandidate struct {
@@ -158,5 +186,6 @@ type PrepareResponse struct {
 }
 
 type ConsumeResponse struct {
-	Secret json.RawMessage `json:"secret"`
+	Secret  json.RawMessage `json:"secret"`
+	Payload json.RawMessage `json:"payload"`
 }
