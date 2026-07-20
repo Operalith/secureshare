@@ -80,7 +80,23 @@ func TestRecipientRevealPageRendering(t *testing.T) {
 }
 
 func TestNoExternalAssetsOrBrowserStorageUsage(t *testing.T) {
-	for _, path := range []string{"../../web/templates/login.html", "../../web/templates/admin.html", "../../web/templates/new_secret.html", "../../web/templates/secret_list.html", "../../web/templates/recipient.html", "../../web/static/admin.js", "../../web/static/reveal.js"} {
+	for _, path := range []string{
+		"../../web/templates/login.html",
+		"../../web/templates/admin.html",
+		"../../web/templates/new_secret.html",
+		"../../web/templates/secret_list.html",
+		"../../web/templates/secret_detail.html",
+		"../../web/templates/recipient.html",
+		"../../web/templates/users.html",
+		"../../web/templates/user_new.html",
+		"../../web/templates/user_detail.html",
+		"../../web/templates/account.html",
+		"../../web/templates/status.html",
+		"../../web/templates/help.html",
+		"../../web/templates/error.html",
+		"../../web/static/admin.js",
+		"../../web/static/reveal.js",
+	} {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -102,12 +118,49 @@ func TestSecurityHeadersStillApplyToUIPages(t *testing.T) {
 	for key, want := range map[string]string{
 		"Cache-Control":           "no-store",
 		"Referrer-Policy":         "no-referrer",
-		"Content-Security-Policy": "default-src 'self'",
+		"Content-Security-Policy": "font-src 'self'",
 		"X-Frame-Options":         "DENY",
 		"X-Content-Type-Options":  "nosniff",
 	} {
 		if got := headers.Get(key); !strings.Contains(got, want) {
 			t.Fatalf("%s = %q, want contains %q", key, got, want)
+		}
+	}
+}
+
+func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
+	cssBytes, err := os.ReadFile("../../web/static/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(cssBytes)
+	for _, want := range []string{
+		`--font-sans: "Inter", "Vazirmatn"`,
+		`--font-mono: "JetBrains Mono"`,
+		"direction: ltr",
+		"unicode-bidi: isolate",
+		"[dir=\"rtl\"]",
+		":lang(fa)",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("styles.css missing typography rule %q", want)
+		}
+	}
+	for _, forbidden := range []string{"url(http://", "url(https://", "fonts.googleapis", "fonts.gstatic"} {
+		if strings.Contains(css, forbidden) {
+			t.Fatalf("styles.css contains external font reference %q", forbidden)
+		}
+	}
+	if _, err := os.Stat("../../web/static/fonts/README.md"); err != nil {
+		t.Fatalf("local fonts directory documentation missing: %v", err)
+	}
+	for _, path := range []string{"../../web/templates/new_secret.html", "../../web/templates/secret_detail.html", "../../web/templates/account.html", "../../web/static/reveal.js"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "technical-value") {
+			t.Fatalf("%s missing technical-value marker", path)
 		}
 	}
 }

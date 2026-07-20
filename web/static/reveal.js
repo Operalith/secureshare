@@ -96,7 +96,7 @@
     name.textContent = key;
 
     const secret = document.createElement("span");
-    secret.className = "secret-value";
+    secret.className = "secret-value technical-value";
     secret.dataset.value = String(value);
     secret.textContent = "••••••••••••";
 

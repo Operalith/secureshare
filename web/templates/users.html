@@ -41,7 +41,7 @@
               <tbody>
                 {{ range .Users }}
                 <tr>
-                  <td data-label="Username"><a href="/admin/users/{{ .ID }}">{{ .Username }}</a></td>
+                  <td data-label="Username" class="technical-value"><a href="/admin/users/{{ .ID }}">{{ .Username }}</a></td>
                   <td data-label="Email">{{ .Email }}</td>
                   <td data-label="Role"><span class="badge neutral">{{ .Role }}</span></td>
                   <td data-label="Status"><span class="badge {{ if eq .Status "active" }}success{{ else }}danger{{ end }}">{{ .Status }}</span></td>

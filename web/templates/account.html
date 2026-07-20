@@ -36,7 +36,7 @@
           <div class="responsive-table">
             <table><thead><tr><th>Created</th><th>Last seen</th><th>Expires</th><th>Status</th></tr></thead><tbody>
               {{ range .Sessions }}
-              <tr><td>{{ formatTime .CreatedAt }}</td><td>{{ formatTime .LastSeenAt }}</td><td>{{ formatTime .ExpiresAt }}</td><td>{{ if .Current }}Current{{ else if .RevokedAt }}Revoked{{ else }}Active{{ end }}</td></tr>
+              <tr><td class="technical-value">{{ formatTime .CreatedAt }}</td><td class="technical-value">{{ formatTime .LastSeenAt }}</td><td class="technical-value">{{ formatTime .ExpiresAt }}</td><td>{{ if .Current }}Current{{ else if .RevokedAt }}Revoked{{ else }}Active{{ end }}</td></tr>
               {{ end }}
             </tbody></table>
           </div>

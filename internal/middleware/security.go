@@ -46,7 +46,7 @@ func SecurityHeaders(cfg config.Config, next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		if cfg.EnableHSTS {
 			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
