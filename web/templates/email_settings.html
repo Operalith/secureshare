@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email Settings - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation">
+        <a href="/admin">Dashboard</a>
+        <a href="/admin/secrets/new">Create Secret</a>
+        <a href="/admin/secrets">Secret Links</a>
+        {{ if hasPermission .Permissions "user:manage" }}<a href="/admin/users">Users</a>{{ end }}
+        {{ if hasPermission .Permissions "api-client:manage" }}<a href="/admin/api-clients">API Clients</a>{{ end }}
+        {{ if hasPermission .Permissions "email-settings:manage" }}<a class="active" href="/admin/settings/email">Email Settings</a>{{ end }}
+        <a href="/admin/account">Account</a>
+        <a href="/admin/status">System Status</a>
+        <a href="/docs">API Docs</a>
+        <a href="/admin/help">Help</a>
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Settings</p><h1>Email settings</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="hero-panel operational-header">
+          <div>
+            <p class="eyebrow">SMTP delivery</p>
+            <h2>Configure encrypted outbound email.</h2>
+            <p>SMTP is optional. Passwords are encrypted with Vault Transit and are never rendered back to the browser.</p>
+          </div>
+          <span class="badge {{ if .Settings.Enabled }}success{{ else }}neutral{{ end }}">{{ if .Settings.Enabled }}enabled{{ else }}disabled{{ end }}</span>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">Transport</p><h2>SMTP configuration</h2></div>
+            <span class="badge {{ if .Settings.PasswordConfigured }}success{{ else }}warning{{ end }}">{{ if .Settings.PasswordConfigured }}Password configured{{ else }}No password stored{{ end }}</span>
+          </div>
+          <form class="form-stack" data-email-settings>
+            <label class="checkbox-line"><input type="checkbox" name="enabled" {{ if .Settings.Enabled }}checked{{ end }}> Enabled</label>
+            <div class="form-grid">
+              <label>SMTP host<input name="smtp_host" value="{{ .Settings.SMTPHost }}" maxlength="255" autocomplete="off" placeholder="mail.example.local"></label>
+              <label>SMTP port<input type="number" name="smtp_port" min="1" max="65535" value="{{ .Settings.SMTPPort }}"></label>
+              <label>Encryption mode<select name="encryption_mode"><option value="starttls" {{ if eq .Settings.EncryptionMode "starttls" }}selected{{ end }}>STARTTLS</option><option value="tls" {{ if eq .Settings.EncryptionMode "tls" }}selected{{ end }}>TLS</option><option value="none" {{ if eq .Settings.EncryptionMode "none" }}selected{{ end }}>None (development only)</option></select></label>
+              <label>SMTP username<input name="smtp_username" value="{{ .Settings.SMTPUsername }}" maxlength="255" autocomplete="off"></label>
+              <label>SMTP password<span class="input-with-action"><input type="password" name="smtp_password" autocomplete="new-password" data-secret-input placeholder="Leave blank to keep current password"><button type="button" class="ghost compact" data-toggle-secret aria-label="Show SMTP password">Show</button></span></label>
+              <label class="checkbox-line compact-check"><input type="checkbox" name="clear_smtp_password"> Clear stored password</label>
+              <label>From name<input name="from_name" value="{{ .Settings.FromName }}" maxlength="255" autocomplete="off" placeholder="SecureShare"></label>
+              <label>From email<input name="from_email" value="{{ .Settings.FromEmail }}" maxlength="255" autocomplete="off" placeholder="secureshare@example.local"></label>
+              <label>Reply-to email<input name="reply_to_email" value="{{ .Settings.ReplyToEmail }}" maxlength="255" autocomplete="off"></label>
+              <label>Connection timeout seconds<input type="number" name="connection_timeout_seconds" min="1" max="60" value="{{ .Settings.ConnectionTimeoutSeconds }}"></label>
+              <label>Send timeout seconds<input type="number" name="send_timeout_seconds" min="1" max="120" value="{{ .Settings.SendTimeoutSeconds }}"></label>
+            </div>
+            <div class="form-grid">
+              <label class="span-two">Default subject<input name="default_subject" value="{{ .Settings.DefaultSubject }}" maxlength="255"></label>
+              <label class="span-two">Default message<textarea name="default_message" rows="10" maxlength="10240">{{ .Settings.DefaultMessage }}</textarea></label>
+              <label class="span-two">Footer text<textarea name="footer_text" rows="4" maxlength="2048">{{ .Settings.FooterText }}</textarea></label>
+            </div>
+            <div class="alert-panel">
+              <strong>Production TLS requirement</strong>
+              <span>Production rejects unencrypted SMTP and never skips certificate validation. Use STARTTLS or TLS with a valid sender address.</span>
+            </div>
+            <p class="form-error" role="alert" data-form-error></p>
+            <p class="status-line" role="status" data-email-status></p>
+            <div class="actions">
+              <button type="submit" data-loading-text="Saving...">Save settings</button>
+              <button type="button" class="secondary" data-email-action="test-connection">Test connection</button>
+              <button type="button" class="secondary" data-email-action="enable">Enable</button>
+              <button type="button" class="secondary" data-email-action="disable">Disable</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Safe test</p><h2>Send test email</h2></div></div>
+          <form class="form-grid" data-email-test>
+            <label>Recipient email<input name="to" autocomplete="off" placeholder="person@example.local"></label>
+            <div class="actions"><button type="submit" data-loading-text="Sending...">Send test email</button><p class="status-line" data-email-test-status></p></div>
+          </form>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

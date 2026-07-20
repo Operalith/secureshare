@@ -18,7 +18,7 @@
         <a href="/admin/secrets">Secret Links</a>
         <a href="/admin/users">Users</a>
         <a class="active" href="/admin/api-clients">API Clients</a>
-        <a href="/admin/account">Account</a>
+        {{ if hasPermission .Permissions "email-settings:manage" }}<a href="/admin/settings/email">Email Settings</a>{{ end }}<a href="/admin/account">Account</a>
         <a href="/admin/status">System Status</a>
         <a href="/docs">API Docs</a>
         <a href="/admin/help">Help</a>

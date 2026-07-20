@@ -8,23 +8,27 @@ import (
 )
 
 type Metrics struct {
-	Registry           *prometheus.Registry
-	SecretCreated      prometheus.Counter
-	SecretConsumed     prometheus.Counter
-	SecretUnavailable  prometheus.Counter
-	SecretRevoked      prometheus.Counter
-	SecretExpired      prometheus.Counter
-	LoginFailures      prometheus.Counter
-	CSRFFailures       prometheus.Counter
-	RateLimitEvents    *prometheus.CounterVec
-	VaultErrors        prometheus.Counter
-	VaultDuration      *prometheus.HistogramVec
-	DatabaseDuration   *prometheus.HistogramVec
-	ConsumeDuration    prometheus.Histogram
-	CleanupDuration    prometheus.Histogram
-	CleanupDeletions   *prometheus.CounterVec
-	StaleLeaseRecovery prometheus.Counter
-	ActiveSecrets      prometheus.Gauge
+	Registry               *prometheus.Registry
+	SecretCreated          prometheus.Counter
+	SecretConsumed         prometheus.Counter
+	SecretUnavailable      prometheus.Counter
+	SecretRevoked          prometheus.Counter
+	SecretExpired          prometheus.Counter
+	LoginFailures          prometheus.Counter
+	CSRFFailures           prometheus.Counter
+	RateLimitEvents        *prometheus.CounterVec
+	VaultErrors            prometheus.Counter
+	VaultDuration          *prometheus.HistogramVec
+	DatabaseDuration       *prometheus.HistogramVec
+	ConsumeDuration        prometheus.Histogram
+	CleanupDuration        prometheus.Histogram
+	CleanupDeletions       *prometheus.CounterVec
+	SMTPConnectionTests    *prometheus.CounterVec
+	SMTPConnectionErrors   *prometheus.CounterVec
+	EmailTestDeliveries    *prometheus.CounterVec
+	SMTPConnectionDuration *prometheus.HistogramVec
+	StaleLeaseRecovery     prometheus.Counter
+	ActiveSecrets          prometheus.Gauge
 }
 
 func New() *Metrics {
@@ -91,6 +95,23 @@ func New() *Metrics {
 			Name: "secureshare_cleanup_deletions_total",
 			Help: "Total records or payloads removed by cleanup.",
 		}, []string{"kind"}),
+		SMTPConnectionTests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_smtp_connection_test_total",
+			Help: "Total SMTP connection tests by result and encryption mode.",
+		}, []string{"result", "encryption_mode"}),
+		SMTPConnectionErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_smtp_connection_errors_total",
+			Help: "Total SMTP connection test errors by safe category and encryption mode.",
+		}, []string{"error_category", "encryption_mode"}),
+		EmailTestDeliveries: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "secureshare_email_test_delivery_total",
+			Help: "Total SMTP test email deliveries by result.",
+		}, []string{"result"}),
+		SMTPConnectionDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "secureshare_smtp_connection_duration_seconds",
+			Help:    "SMTP connection test duration in seconds.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"result", "encryption_mode"}),
 		StaleLeaseRecovery: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "secureshare_stale_lease_recovery_total",
 			Help: "Total stale consuming leases restored to active by cleanup.",
@@ -115,6 +136,10 @@ func New() *Metrics {
 		m.ConsumeDuration,
 		m.CleanupDuration,
 		m.CleanupDeletions,
+		m.SMTPConnectionTests,
+		m.SMTPConnectionErrors,
+		m.EmailTestDeliveries,
+		m.SMTPConnectionDuration,
 		m.StaleLeaseRecovery,
 		m.ActiveSecrets,
 	)
@@ -144,6 +169,18 @@ func New() *Metrics {
 	}
 	for _, kind := range []string{"payload", "audit"} {
 		m.CleanupDeletions.WithLabelValues(kind)
+	}
+	for _, mode := range []string{"starttls", "tls", "none"} {
+		for _, result := range []string{"success", "failed"} {
+			m.SMTPConnectionTests.WithLabelValues(result, mode)
+			m.SMTPConnectionDuration.WithLabelValues(result, mode)
+		}
+		for _, category := range []string{"SMTP_CONFIGURATION_ERROR", "SMTP_CONNECTION_FAILED", "SMTP_TLS_FAILED", "SMTP_AUTHENTICATION_FAILED", "SMTP_TIMEOUT", "SMTP_DELIVERY_FAILED"} {
+			m.SMTPConnectionErrors.WithLabelValues(category, mode)
+		}
+	}
+	for _, result := range []string{"success", "failed"} {
+		m.EmailTestDeliveries.WithLabelValues(result)
 	}
 	return m
 }

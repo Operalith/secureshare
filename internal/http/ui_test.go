@@ -18,6 +18,7 @@ import (
 	"secureshare/internal/auth"
 	"secureshare/internal/config"
 	"secureshare/internal/delivery"
+	secureemail "secureshare/internal/email"
 	"secureshare/internal/observability"
 	"secureshare/internal/ratelimit"
 )
@@ -44,7 +45,7 @@ func TestAdminPagesRendering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create api client fixture: %v", err)
 	}
-	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/account", "/admin/status", "/admin/help", "/docs"} {
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/settings/email", "/admin/account", "/admin/status", "/admin/help", "/docs"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.AddCookie(cookie)
@@ -101,6 +102,7 @@ func TestNoExternalAssetsOrBrowserStorageUsage(t *testing.T) {
 		"../../web/templates/api_clients.html",
 		"../../web/templates/api_client_new.html",
 		"../../web/templates/api_client_detail.html",
+		"../../web/templates/email_settings.html",
 		"../../web/templates/account.html",
 		"../../web/templates/status.html",
 		"../../web/templates/help.html",
@@ -457,6 +459,87 @@ func TestDeveloperExamplesAndPostmanArtifacts(t *testing.T) {
 	}
 }
 
+func TestEmailSettingsAPIRedactsPasswordAndRequiresAdmin(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/email", nil)
+	getReq.AddCookie(cookie)
+	getRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get email settings = %d, want 200: %s", getRec.Code, getRec.Body.String())
+	}
+	if strings.Contains(getRec.Body.String(), "smtp_password") || strings.Contains(getRec.Body.String(), "ciphertext") {
+		t.Fatalf("safe settings leaked password fields: %s", getRec.Body.String())
+	}
+
+	payload := `{"enabled":true,"smtp_host":"smtp.example.local","smtp_port":587,"encryption_mode":"starttls","smtp_username":"smtp-user","smtp_password":"smtp-redaction-canary","from_name":"SecureShare","from_email":"secureshare@example.local","connection_timeout_seconds":5,"send_timeout_seconds":10,"default_subject":"A secure one-time secret has been shared with you","default_message":"Open {{secure_link}}"}`
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/email", strings.NewReader(payload))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("X-CSRF-Token", csrf)
+	putReq.AddCookie(cookie)
+	putRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("put email settings = %d, want 200: %s", putRec.Code, putRec.Body.String())
+	}
+	if !strings.Contains(putRec.Body.String(), `"password_configured":true`) {
+		t.Fatalf("safe settings missing password configured status: %s", putRec.Body.String())
+	}
+	if strings.Contains(putRec.Body.String(), "smtp-redaction-canary") || strings.Contains(putRec.Body.String(), "smtp_password") {
+		t.Fatalf("settings response leaked SMTP password: %s", putRec.Body.String())
+	}
+	pageReq := httptest.NewRequest(http.MethodGet, "/admin/settings/email", nil)
+	pageReq.AddCookie(cookie)
+	pageRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(pageRec, pageReq)
+	if pageRec.Code != http.StatusOK {
+		t.Fatalf("email settings page = %d, want 200", pageRec.Code)
+	}
+	if strings.Contains(pageRec.Body.String(), "smtp-redaction-canary") || strings.Contains(pageRec.Body.String(), "vault:v1:") {
+		t.Fatalf("email settings page leaked secret material: %s", pageRec.Body.String())
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/api/v1/settings/email/disable", nil)
+	disableReq.Header.Set("X-CSRF-Token", csrf)
+	disableReq.AddCookie(cookie)
+	disableRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable email settings = %d, want 200: %s", disableRec.Code, disableRec.Body.String())
+	}
+
+	viewer, err := app.users.CreateUser(context.Background(), auth.UserCreate{Username: "settings-viewer", Email: "settings-viewer@example.local", Password: "viewer passphrase", Role: auth.RoleViewer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerCookie, _ := loginSession(t, app, viewer.Username, "viewer passphrase")
+	blockedReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/email", nil)
+	blockedReq.AddCookie(viewerCookie)
+	blockedRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(blockedRec, blockedReq)
+	if blockedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("viewer get email settings = %d, want 401", blockedRec.Code)
+	}
+}
+
+func TestEmailSettingsProductionRejectsUnencryptedSMTP(t *testing.T) {
+	app := testServerWithConfig(func(cfg *config.Config) {
+		cfg.AppEnv = "production"
+	})
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	payload := `{"enabled":true,"smtp_host":"smtp.example.local","smtp_port":25,"encryption_mode":"none","from_email":"secureshare@example.local","connection_timeout_seconds":5,"send_timeout_seconds":10,"default_subject":"Subject","default_message":"Message {{secure_link}}"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/email", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("production none SMTP = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func loginCookie(t *testing.T, app *Server) *http.Cookie {
 	t.Helper()
 	cookie, _ := loginSession(t, app, "admin", "change-me-now")
@@ -527,6 +610,7 @@ func testServerWithConfig(configure func(*config.Config)) *Server {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false).WithStore(users),
 		Delivery: delivery.NewService(cfg, &uiStore{}, &uiVault{}, observability.New(), slog.Default()),
+		Email:    secureemail.NewService(cfg, secureemail.NewMemoryStore(), &uiVault{}, observability.New(), slog.Default()),
 		Metrics:  observability.New(),
 		Limits:   ratelimit.NewRegistry(),
 		Users:    users,

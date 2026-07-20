@@ -24,6 +24,7 @@ import (
 	"secureshare/internal/config"
 	securecrypto "secureshare/internal/crypto"
 	"secureshare/internal/delivery"
+	secureemail "secureshare/internal/email"
 	"secureshare/internal/middleware"
 	"secureshare/internal/observability"
 	"secureshare/internal/ratelimit"
@@ -34,6 +35,7 @@ type Dependencies struct {
 	Logger   *slog.Logger
 	Auth     *auth.SessionManager
 	Delivery *delivery.Service
+	Email    *secureemail.Service
 	DB       *pgxpool.Pool
 	Vault    delivery.Vault
 	Metrics  *observability.Metrics
@@ -47,6 +49,7 @@ type Server struct {
 	logger    *slog.Logger
 	auth      *auth.SessionManager
 	delivery  *delivery.Service
+	email     *secureemail.Service
 	db        *pgxpool.Pool
 	vault     delivery.Vault
 	metrics   *observability.Metrics
@@ -84,6 +87,7 @@ func New(deps Dependencies) *Server {
 		logger:    deps.Logger,
 		auth:      deps.Auth,
 		delivery:  deps.Delivery,
+		email:     deps.Email,
 		db:        deps.DB,
 		vault:     deps.Vault,
 		metrics:   deps.Metrics,
@@ -136,6 +140,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/users/new", s.handleNewUserPage)
 	mux.HandleFunc("/admin/users/", s.handleUserDetailPage)
 	mux.HandleFunc("/admin/account", s.handleAccountPage)
+	mux.HandleFunc("/admin/settings/email", s.handleEmailSettingsPage)
 	mux.HandleFunc("/admin/api-clients", s.handleAPIClientsPage)
 	mux.HandleFunc("/admin/api-clients/new", s.handleNewAPIClientPage)
 	mux.HandleFunc("/admin/api-clients/", s.handleAPIClientDetailPage)
@@ -149,6 +154,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/me/sessions/revoke-other", s.handleRevokeOtherSessions)
 	mux.HandleFunc("/api/v1/dashboard", s.handleDashboardAPI)
 	mux.HandleFunc("/api/v1/admin/cleanup", s.handleManualCleanup)
+	mux.HandleFunc("/api/v1/settings/email", s.handleEmailSettingsAPI)
+	mux.HandleFunc("/api/v1/settings/email/", s.handleEmailSettingsActionAPI)
 	mux.HandleFunc("/api/v1/users", s.handleUsersAPI)
 	mux.HandleFunc("/api/v1/users/", s.handleUserAPI)
 	mux.HandleFunc("/api/v1/api-clients", s.handleAPIClientsAPI)
@@ -392,6 +399,21 @@ func (s *Server) handleAccountPage(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("session list query failed", "user_id", session.UserID, "error", err)
 	}
 	s.render(w, "account.html", s.adminData(r, map[string]any{"Title": "Account", "Sessions": sessions}))
+}
+
+func (s *Server) handleEmailSettingsPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/settings/email" {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := s.requirePageSession(w, r, "email-settings:manage"); !ok {
+		return
+	}
+	settings, err := s.email.SafeSettings(r.Context())
+	if err != nil {
+		s.logger.Warn("email settings page query failed", "error", err)
+	}
+	s.render(w, "email_settings.html", s.adminData(r, map[string]any{"Title": "Email Settings", "Settings": settings}))
 }
 
 func (s *Server) handleAPIClientsPage(w http.ResponseWriter, r *http.Request) {
@@ -1133,6 +1155,104 @@ func (s *Server) handleManualCleanup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cleanup": result})
 }
 
+func (s *Server) handleEmailSettingsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api/v1/settings/email" {
+		http.NotFound(w, r)
+		return
+	}
+	actor, ok := s.requireAPI(w, r, "email-settings:manage")
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		settings, err := s.email.SafeSettings(r.Context())
+		if err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, settings)
+	case http.MethodPut:
+		var req secureemail.UpdateRequest
+		if !s.decodeJSON(w, r, 16*1024, &req) {
+			return
+		}
+		result, err := s.email.Update(r.Context(), actor.UserID, req)
+		if err != nil {
+			s.writeEmailError(w, err)
+			return
+		}
+		s.recordEmailAudit(r, actor, "email.settings_updated", "success")
+		if result.PasswordUpdated {
+			s.recordEmailAudit(r, actor, "email.password_updated", "success")
+		}
+		if result.PasswordCleared {
+			s.recordEmailAudit(r, actor, "email.password_cleared", "success")
+		}
+		s.writeJSON(w, http.StatusOK, result.Settings)
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleEmailSettingsActionAPI(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAPI(w, r, "email-settings:manage")
+	if !ok {
+		return
+	}
+	action := strings.TrimPrefix(r.URL.Path, "/api/v1/settings/email/")
+	switch {
+	case action == "test-connection" && r.Method == http.MethodPost:
+		result := s.email.TestConnection(r.Context())
+		eventType := "email.connection_test_succeeded"
+		if !result.OK {
+			eventType = "email.connection_test_failed"
+		}
+		s.recordEmailAudit(r, actor, eventType, result.Result)
+		s.writeJSON(w, http.StatusOK, result)
+	case action == "send-test" && r.Method == http.MethodPost:
+		var req secureemail.SendTestRequest
+		if !s.decodeJSON(w, r, 2048, &req) {
+			return
+		}
+		result := s.email.SendTest(r.Context(), req.To)
+		eventType := "email.test_delivery_succeeded"
+		if !result.OK {
+			eventType = "email.test_delivery_failed"
+		}
+		s.recordEmailAudit(r, actor, eventType, result.Result)
+		s.writeJSON(w, http.StatusOK, result)
+	case action == "enable" && r.Method == http.MethodPost:
+		settings, err := s.email.SetEnabled(r.Context(), actor.UserID, true)
+		if err != nil {
+			s.writeEmailError(w, err)
+			return
+		}
+		s.recordEmailAudit(r, actor, "email.enabled", "success")
+		s.writeJSON(w, http.StatusOK, settings)
+	case action == "disable" && r.Method == http.MethodPost:
+		settings, err := s.email.SetEnabled(r.Context(), actor.UserID, false)
+		if err != nil {
+			s.writeEmailError(w, err)
+			return
+		}
+		s.recordEmailAudit(r, actor, "email.disabled", "success")
+		s.writeJSON(w, http.StatusOK, settings)
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) recordEmailAudit(r *http.Request, actor actor, eventType, result string) {
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   actor.ActorID,
+		Type:      eventType,
+		Result:    result,
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
+}
+
 func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
@@ -1554,6 +1674,21 @@ func (s *Server) writeDeliveryError(w http.ResponseWriter, err error) {
 		message = "Dependency unavailable."
 	}
 	s.writeError(w, code, message, status)
+}
+
+func (s *Server) writeEmailError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, secureemail.ErrForbidden):
+		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+	case errors.Is(err, secureemail.ErrInvalid):
+		s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+	case errors.Is(err, secureemail.ErrNotConfigured):
+		s.writeError(w, delivery.CodeInvalidRequest, "Email settings are not configured.", http.StatusUnprocessableEntity)
+	case errors.Is(err, secureemail.ErrDependency):
+		s.writeError(w, delivery.CodeDependencyUnavailable, "Dependency unavailable.", http.StatusServiceUnavailable)
+	default:
+		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) writeError(w http.ResponseWriter, code delivery.ErrorCode, message string, status int) {

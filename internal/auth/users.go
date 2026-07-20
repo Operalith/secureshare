@@ -111,6 +111,7 @@ func PermissionsForRole(role string) []string {
 			"secret:revoke",
 			"user:manage",
 			"api-client:manage",
+			"email-settings:manage",
 			"system:cleanup",
 			"api-docs:read",
 			"account:manage",

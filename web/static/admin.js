@@ -591,6 +591,107 @@
     });
   }
 
+  function setupEmailSettings() {
+    const settingsForm = qs("[data-email-settings]");
+    const testForm = qs("[data-email-test]");
+    if (!settingsForm && !testForm) return;
+
+    function settingsPayload(form) {
+      const data = new FormData(form);
+      return {
+        enabled: data.get("enabled") === "on",
+        smtp_host: String(data.get("smtp_host") || ""),
+        smtp_port: Number(data.get("smtp_port") || 0),
+        encryption_mode: String(data.get("encryption_mode") || "starttls"),
+        smtp_username: String(data.get("smtp_username") || ""),
+        smtp_password: String(data.get("smtp_password") || ""),
+        clear_smtp_password: data.get("clear_smtp_password") === "on",
+        from_name: String(data.get("from_name") || ""),
+        from_email: String(data.get("from_email") || ""),
+        reply_to_email: String(data.get("reply_to_email") || ""),
+        connection_timeout_seconds: Number(data.get("connection_timeout_seconds") || 5),
+        send_timeout_seconds: Number(data.get("send_timeout_seconds") || 10),
+        default_subject: String(data.get("default_subject") || ""),
+        default_message: String(data.get("default_message") || ""),
+        footer_text: String(data.get("footer_text") || ""),
+      };
+    }
+
+    settingsForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.submitter || settingsForm.querySelector('button[type="submit"]');
+      const error = qs("[data-form-error]", settingsForm);
+      const status = qs("[data-email-status]", settingsForm);
+      if (error) error.textContent = "";
+      if (status) status.textContent = "";
+      setButtonLoading(submit, true);
+      try {
+        const response = await fetch("/api/v1/settings/email", {
+          method: "PUT",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify(settingsPayload(settingsForm)),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (error) error.textContent = body.message || "Email settings could not be saved.";
+          return;
+        }
+        settingsForm.querySelector('input[name="smtp_password"]').value = "";
+        settingsForm.querySelector('input[name="clear_smtp_password"]').checked = false;
+        if (status) status.textContent = body.password_configured ? "Settings saved. Password configured." : "Settings saved. No password is stored.";
+        toast("Email settings saved.");
+      } finally {
+        setButtonLoading(submit, false);
+      }
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-email-action]");
+      if (!button) return;
+      const action = button.dataset.emailAction;
+      const status = qs("[data-email-status]", settingsForm);
+      setButtonLoading(button, true);
+      try {
+        const response = await fetch(`/api/v1/settings/email/${action}`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: "{}",
+        });
+        const body = await response.json().catch(() => ({}));
+        if (status) {
+          if (action === "test-connection") status.textContent = body.ok ? "Connection test succeeded." : `Connection test failed: ${body.error_category || "SMTP_CONFIGURATION_ERROR"}.`;
+          if (action === "enable") status.textContent = response.ok ? "SMTP delivery enabled." : "SMTP delivery could not be enabled.";
+          if (action === "disable") status.textContent = response.ok ? "SMTP delivery disabled." : "SMTP delivery could not be disabled.";
+        }
+        toast(response.ok && body.ok !== false ? "Email settings action completed." : "Email settings action finished with warnings.");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+    testForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.submitter || testForm.querySelector('button[type="submit"]');
+      const status = qs("[data-email-test-status]", testForm);
+      const data = new FormData(testForm);
+      setButtonLoading(submit, true);
+      try {
+        const response = await fetch("/api/v1/settings/email/send-test", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ to: String(data.get("to") || "") }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (status) status.textContent = body.ok ? "Test email sent." : `Test email failed: ${body.error_category || "SMTP_DELIVERY_FAILED"}.`;
+      } finally {
+        setButtonLoading(submit, false);
+      }
+    });
+  }
+
   setupTheme();
   setupNavigation();
   setupSecretToggles();
@@ -600,4 +701,5 @@
   setupUserManagement();
   setupAPIClients();
   setupAccount();
+  setupEmailSettings();
 })();

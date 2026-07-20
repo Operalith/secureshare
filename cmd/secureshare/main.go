@@ -16,6 +16,7 @@ import (
 	"secureshare/internal/crypto"
 	"secureshare/internal/database"
 	"secureshare/internal/delivery"
+	"secureshare/internal/email"
 	server "secureshare/internal/http"
 	"secureshare/internal/observability"
 	"secureshare/internal/ratelimit"
@@ -53,6 +54,7 @@ func main() {
 	}
 
 	repo := delivery.NewRepository(db)
+	emailRepo := email.NewRepository(db)
 	users := auth.NewRepository(db)
 	if err := auth.BootstrapAdmin(ctx, users, cfg); err != nil {
 		logger.Error("bootstrap admin failed", "error", err)
@@ -60,6 +62,7 @@ func main() {
 	}
 	metrics := observability.New()
 	secrets := delivery.NewService(cfg, repo, vaultClient, metrics, logger)
+	emailSettings := email.NewService(cfg, emailRepo, vaultClient, metrics, logger)
 	sessions := auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, cfg.CookieSecure).WithStore(users)
 	limiters := ratelimit.NewRegistry()
 	app := server.New(server.Dependencies{
@@ -67,6 +70,7 @@ func main() {
 		Logger:   logger,
 		Auth:     sessions,
 		Delivery: secrets,
+		Email:    emailSettings,
 		DB:       db,
 		Vault:    vaultClient,
 		Metrics:  metrics,
