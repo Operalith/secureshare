@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: secureshare
+      POSTGRES_USER: secureshare
+      POSTGRES_PASSWORD: secureshare
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secureshare -d secureshare"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  vault:
+    image: hashicorp/vault:1.17
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    command: ["server", "-dev"]
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD-SHELL", "VAULT_ADDR=http://127.0.0.1:8200 vault status >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  vault-bootstrap:
+    image: hashicorp/vault:1.17
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      VAULT_TRANSIT_KEY: ${VAULT_TRANSIT_KEY:-secureshare}
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "/scripts/vault-bootstrap.sh"]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_ADDR: ${APP_ADDR:-:8080}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      DATABASE_URL: postgres://secureshare:secureshare@postgres:5432/secureshare?sslmode=disable
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      VAULT_TRANSIT_KEY: ${VAULT_TRANSIT_KEY:-secureshare}
+      SECURESHARE_ADMIN_API_KEY: ${SECURESHARE_ADMIN_API_KEY:-change-me}
+      TOKEN_HMAC_PEPPER: ${TOKEN_HMAC_PEPPER:-replace-with-a-long-random-value-at-least-32-bytes}
+      SESSION_SECRET: ${SESSION_SECRET:-replace-with-a-long-random-value-at-least-32-bytes}
+      REQUEST_IP_HASH_PEPPER: ${REQUEST_IP_HASH_PEPPER:-replace-with-a-long-random-value-at-least-32-bytes}
+      MAX_SECRET_TTL: ${MAX_SECRET_TTL:-168h}
+      DEFAULT_SECRET_TTL: ${DEFAULT_SECRET_TTL:-24h}
+      CONSUMING_LEASE_TTL: ${CONSUMING_LEASE_TTL:-30s}
+      CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-5m}
+      CONSUMED_PAYLOAD_RETENTION: ${CONSUMED_PAYLOAD_RETENTION:-0m}
+      EXPIRED_PAYLOAD_RETENTION: ${EXPIRED_PAYLOAD_RETENTION:-24h}
+      REVOKED_PAYLOAD_RETENTION: ${REVOKED_PAYLOAD_RETENTION:-24h}
+      SESSION_TTL: ${SESSION_TTL:-12h}
+      MAX_SECRET_BYTES: ${MAX_SECRET_BYTES:-32768}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault-bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

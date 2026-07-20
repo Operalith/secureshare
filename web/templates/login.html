@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SecureShare Login</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="panel auth-panel">
+      <h1>SecureShare</h1>
+      <p class="muted">Internal one-time secret delivery</p>
+      <form method="post" action="/api/v1/auth/login" class="form-stack">
+        <label>
+          Admin API key
+          <input type="password" name="api_key" autocomplete="current-password" required>
+        </label>
+        <button type="submit">Sign in</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure Secret - SecureShare</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/reveal.js" defer></script>
+</head>
+<body>
+  <main class="recipient-shell">
+    <section class="panel reveal-panel">
+      <h1>A secure secret has been shared with you.</h1>
+      <p class="muted">This secret can only be viewed once.</p>
+      <div id="prepare-state" class="status-line" role="status">Preparing secure link...</div>
+      <label id="password-wrap" class="hidden">
+        Link password
+        <input type="password" id="link-password" autocomplete="current-password">
+      </label>
+      <div class="actions">
+        <button type="button" id="reveal-button" disabled>Reveal Secret</button>
+      </div>
+      <section id="revealed-secret-wrap" class="revealed hidden" aria-live="polite">
+        <h2>Secret revealed</h2>
+        <pre><code id="revealed-secret"></code></pre>
+        <div class="actions">
+          <button type="button" id="copy-secret">Copy secret</button>
+        </div>
+        <p class="warning">This page cannot retrieve the secret again after refresh or navigation.</p>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

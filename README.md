@@ -1,0 +1,148 @@
+# SecureShare
+
+SecureShare is a production-oriented MVP for secure one-time secret delivery. Internal developers or services create encrypted one-time links for credentials, API keys, access tokens, and similar sensitive values. Recipients open the link, explicitly click Reveal Secret, and can view the payload exactly once.
+
+The local stack runs with Go, PostgreSQL, and HashiCorp Vault Transit through Docker Compose.
+
+## Quick Start
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+./scripts/smoke-test.sh
+```
+
+The app is available at:
+
+```text
+http://localhost:8080
+```
+
+Default local admin API key:
+
+```text
+change-me
+```
+
+The Compose file also supplies development defaults, so `docker compose up -d --build` works before `.env` exists. Copy `.env.example` when you want to edit local settings.
+
+## What It Does
+
+- Creates one-time secret links with optional title, description, recipient reference, password protection, and expiration.
+- Uses at least 256 bits of random token entropy.
+- Places the raw token in the URL fragment, for example `http://localhost:8080/s#token`, so browsers do not send it automatically in normal page requests.
+- Stores only `HMAC-SHA256(token_pepper, raw_token)` in PostgreSQL.
+- Encrypts secret payloads with Vault Transit before storage.
+- Atomically transitions records through `active`, `consuming`, `consumed`, `expired`, and `revoked`.
+- Returns a generic `410 Gone` for invalid, expired, revoked, consumed, locked, or unknown tokens.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A["Admin user or service"] --> B["Go HTTP app"]
+  B --> C["PostgreSQL metadata and ciphertext"]
+  B --> D["Vault Transit secureshare key"]
+  E["Recipient browser"] --> B
+  B --> F["Prometheus metrics"]
+```
+
+The Go app renders the admin and recipient pages directly. There is no React, Node.js, external font, CDN, analytics script, or frontend build pipeline.
+
+## One-Time Consumption
+
+Consume is concurrency-safe:
+
+1. The backend derives the token HMAC.
+2. PostgreSQL atomically transitions one matching active row to `consuming` with a short lease.
+3. Password verification happens before Vault decrypt.
+4. Vault decrypts the ciphertext.
+5. PostgreSQL transitions the same leased row to `consumed` and blanks `encrypted_payload`.
+6. The plaintext is returned once.
+
+If Vault decrypt fails, the app restores the row to `active` while the same lease still owns it.
+
+## Vault Encryption
+
+Local Compose runs Vault dev mode and an idempotent `vault-bootstrap` container. The bootstrap enables the Transit engine and creates the `secureshare` key.
+
+Production must use a persistent initialized and unsealed Vault cluster. Do not use dev mode in production.
+
+## API Example
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/secret-links \
+  -H 'Authorization: Bearer change-me' \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "title": "Merchant production credentials",
+    "recipient_reference": "merchant-1001",
+    "secret": {"username":"merchant-1001","password":"temporary-password"},
+    "expires_in_seconds": 86400,
+    "password": null,
+    "max_failed_attempts": 5
+  }'
+```
+
+Open the returned `url` in a browser. The recipient page strips the fragment from the address bar before POSTing the token.
+
+## UI Usage
+
+1. Visit `http://localhost:8080/login`.
+2. Enter the local admin API key.
+3. Create a secret at `/admin/secrets/new`.
+4. Copy the generated one-time URL.
+5. Optionally revoke the link before it is viewed.
+
+The admin interface never shows the original secret after creation.
+
+## Tests
+
+```bash
+make test
+make lint
+```
+
+Integration tests expect the Compose stack:
+
+```bash
+docker compose up -d --build
+INTEGRATION_TESTS=1 go test ./tests -count=1
+```
+
+Smoke test:
+
+```bash
+./scripts/smoke-test.sh
+```
+
+## Local Secret Rotation
+
+For local development:
+
+1. Stop the stack: `docker compose down`.
+2. Generate new values for `SECURESHARE_ADMIN_API_KEY`, `TOKEN_HMAC_PEPPER`, `SESSION_SECRET`, and `REQUEST_IP_HASH_PEPPER`.
+3. Update `.env`.
+4. Restart: `docker compose up -d --build`.
+
+Changing `TOKEN_HMAC_PEPPER` invalidates existing unconsumed links because token lookup hashes no longer match.
+
+## Troubleshooting
+
+- `health/ready` fails: check `docker compose logs app vault vault-bootstrap postgres`.
+- Vault bootstrap fails: verify `VAULT_TOKEN` matches the Vault dev root token.
+- Create returns `503`: Vault is not ready or the Transit key is missing.
+- Consume returns `410`: the token is invalid, expired, revoked, locked, or already viewed. The response is intentionally generic.
+- Login fails locally: use the value of `SECURESHARE_ADMIN_API_KEY`, default `change-me`.
+
+## Production Notes
+
+Use HTTPS only, HSTS, a real Vault cluster, short-lived Vault credentials, PostgreSQL TLS, strong environment secrets, external session storage for multiple replicas, Redis-backed rate limiting for multiple replicas, body redaction in APM/reverse proxies, log shipping, backups, container scanning, and restricted network access.
+
+Known MVP limitations:
+
+- Sessions and rate limits are in memory.
+- Local Vault runs in dev mode.
+- There is one administrator role.
+- No OIDC integration yet, though auth code is organized for it.
