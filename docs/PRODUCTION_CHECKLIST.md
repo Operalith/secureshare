@@ -68,9 +68,9 @@ Inspect application, reverse proxy, Vault audit, and APM logs for the known cana
 
 ## Explicit MVP Limits
 
-- Sessions are in memory and are single-instance.
 - Rate limiting is in memory and is single-instance.
 - Machine authentication supports scoped API clients; the deprecated global admin API key may remain enabled during migration.
-- OIDC and SSO are not implemented.
-- Redis-backed shared limiter and session storage are not implemented.
-- Horizontal app replicas require shared session storage and shared rate limiting first.
+- OIDC, LDAP, SSO, and MFA are not implemented.
+- Redis-backed shared rate limiting is not implemented.
+- Horizontal app replicas require shared rate limiting and PostgreSQL connectivity for session storage.
+- Email delivery, SMS OTP, and multi-tenant isolation are not implemented.

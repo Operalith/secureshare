@@ -10,6 +10,7 @@ flowchart TB
   end
   subgraph App["Go SecureShare app"]
     H["HTTP handlers and templates"]
+    ID["Local users, sessions, and API clients"]
     S["Delivery service"]
     L["In-memory rate limiter"]
     C["Cleanup worker"]
@@ -21,8 +22,10 @@ flowchart TB
 
   A --> H
   R --> H
+  H --> ID
   H --> L
   H --> S
+  ID --> DB
   S --> DB
   S --> V
   S --> AU
@@ -104,6 +107,8 @@ The `secret_deliveries` table stores:
 
 It does not store raw tokens or plaintext secrets.
 
+The `users`, `user_sessions`, and `api_clients` tables store local UI identities, only HMAC session-token hashes, and only HMAC API-client secret hashes. They do not store plaintext passwords, session tokens, or API client secrets.
+
 The `audit_events` table stores safe operational events only:
 
 - Event type and result
@@ -139,9 +144,8 @@ Metrics intentionally avoid delivery IDs, recipient references, titles, username
 
 ## Scaling Considerations
 
-The MVP app is stateless except for in-memory sessions and rate limits. For multiple replicas, add:
+The app keeps browser sessions in PostgreSQL. The remaining single-instance state is the in-memory rate limiter. For multiple replicas, add:
 
-- Shared session storage
 - Redis-backed rate limiting
 - A trusted reverse proxy that sets client IP headers
 - Centralized logs and metrics

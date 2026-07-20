@@ -74,10 +74,11 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 
 ## Residual Risks
 
-- In-memory sessions and rate limits are single-instance.
+- In-memory rate limits are single-instance.
 - The deprecated global admin API key is less auditable than scoped API clients and should be disabled after migration.
-- OIDC, SAML, and MFA are not implemented.
+- OIDC, LDAP, SAML, and MFA are not implemented.
 - Redis-backed shared rate limiting is not implemented.
+- Email delivery, SMS OTP, and multi-tenant isolation are not implemented.
 - Local Compose uses Vault dev mode and must not be used for production secrets.
 - Possession of an unprotected link is sufficient for reveal.
 - The app cannot prevent a recipient from copying the revealed secret after successful delivery.
@@ -86,8 +87,8 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 ## Recommended Next Controls
 
 - Add OIDC with individual admin identities and MFA.
-- Move sessions to shared storage with server-side revocation.
 - Move rate limits to Redis or a managed shared limiter.
+- Add session cleanup and anomaly alerts for PostgreSQL-backed sessions.
 - Add per-admin audit actor identity.
 - Use platform-native Vault auth with short-lived renewable credentials.
 - Add automated container and dependency scanning in CI.

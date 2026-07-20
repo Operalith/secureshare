@@ -183,11 +183,11 @@ Production guidance is in:
 - `deploy/nginx/secureshare.conf`
 - `deploy/vault/secureshare-policy.hcl`
 
-Use HTTPS only, HSTS, a real Vault cluster, short-lived Vault credentials, PostgreSQL TLS, strong environment secrets, external session storage for multiple replicas, Redis-backed rate limiting for multiple replicas, body redaction in APM/reverse proxies, log shipping, backups, container scanning, and restricted network access.
+Use HTTPS only, HSTS, a real Vault cluster, short-lived Vault credentials, PostgreSQL TLS, strong environment secrets, Redis-backed rate limiting for multiple replicas, body redaction in APM/reverse proxies, log shipping, backups, container scanning, and restricted network access.
 
 Known MVP limitations:
 
-- Sessions and rate limits are in memory.
+- Rate limits are in memory and are single-instance.
 - Local Vault runs in dev mode.
 - UI authentication uses local PostgreSQL users and sessions; machine authentication supports scoped API clients and the deprecated global admin API key.
-- OIDC integration, Redis-backed limits, and shared session storage are not implemented yet.
+- OIDC, LDAP, MFA, Redis-backed limits, email delivery, SMS OTP, and multi-tenant isolation are not implemented yet.

@@ -187,7 +187,7 @@ Vault Transit key rotation should use Vault-native rotation. Existing ciphertext
 ## Security Limitations
 
 - Link possession authorizes reveal unless optional password protection is enabled.
-- In-memory sessions and rate limits are single-instance only.
+- Rate limits are in memory and are single-instance only.
 - Local Compose uses Vault dev mode.
 - Machine auth still supports the deprecated global admin API key while migrations to API clients complete.
-- OIDC, Redis-backed rate limiting, and shared session storage are not implemented.
+- OIDC, LDAP, MFA, Redis-backed rate limiting, email delivery, SMS OTP, and multi-tenant isolation are not implemented.

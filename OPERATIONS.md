@@ -163,8 +163,8 @@ The production Compose file expects external PostgreSQL and Vault, binds the app
 
 For multiple app replicas:
 
-- Use shared session storage.
 - Replace the in-memory limiter with Redis or another shared limiter.
+- Ensure all replicas use the same PostgreSQL database for users and sessions.
 - Keep PostgreSQL as the one-time consumption authority.
 - Run one or more cleanup workers; cleanup queries are idempotent.
 
