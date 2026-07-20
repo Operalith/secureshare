@@ -13,6 +13,7 @@ SecureShare protects sensitive values during internal handoff to recipients. It 
 - Session secret
 - CSRF secret
 - Request IP hash pepper
+- API client secrets
 - Optional link passwords
 - Vault token and Transit key material
 - PostgreSQL ciphertext and metadata
@@ -91,7 +92,13 @@ All authenticated browser state-changing actions require CSRF validation:
 - Manual cleanup
 - Logout
 
-Bearer-token API requests do not use browser CSRF protection. The global admin API key is retained for compatibility and is deprecated for new integrations.
+Machine-authenticated Basic and legacy bearer requests do not use browser CSRF protection. The global admin API key is retained for compatibility, can be disabled with `LEGACY_ADMIN_API_KEY_ENABLED=false`, and is deprecated for new integrations.
+
+## API Client Authentication
+
+API clients authenticate with HTTP Basic auth using `client_id:client_secret`. Client secrets are generated with cryptographically secure randomness, shown only at creation or rotation, and stored only as `HMAC-SHA256(TOKEN_HMAC_PEPPER, client_id || client_secret)`.
+
+Supported scopes are `secret:create`, `secret:list`, `secret:read-metadata`, `secret:revoke`, and `dashboard:read`. API clients can be disabled, revoked, expired, and rotated. Basic auth is rejected in production unless the request is HTTPS or carries `X-Forwarded-Proto: https` from the trusted reverse proxy.
 
 ## Replay Prevention
 
@@ -180,5 +187,5 @@ Vault Transit key rotation should use Vault-native rotation. Existing ciphertext
 - Link possession authorizes reveal unless optional password protection is enabled.
 - In-memory sessions and rate limits are single-instance only.
 - Local Compose uses Vault dev mode.
-- Admin auth is a single API key for the MVP.
+- Machine auth still supports the deprecated global admin API key while migrations to API clients complete.
 - OIDC, Redis-backed rate limiting, and shared session storage are not implemented.

@@ -27,7 +27,8 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 ## Trust Boundaries
 
 - Admin browser to app: authenticated with session cookie and CSRF token.
-- Admin API client to app: authenticated with bearer admin API key.
+- Machine API client to app: authenticated with scoped Basic auth API client credentials.
+- Legacy automation to app: authenticated with the deprecated bearer admin API key while enabled.
 - Recipient browser to app: possession of URL fragment token and optional password authorizes one reveal.
 - App to PostgreSQL: metadata, token HMACs, state transitions, audit events, and Vault ciphertext.
 - App to Vault: plaintext encryption and ciphertext decryption.
@@ -44,6 +45,7 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Database outage during consume.
 - Admin session CSRF.
 - Admin API key brute force.
+- API client credential brute force or leaked client secret.
 - Request or response body capture by middleware, reverse proxies, APM, or logs.
 - Insider access to PostgreSQL backups.
 
@@ -61,7 +63,8 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 - Generic `SECRET_UNAVAILABLE` responses for recipient failures.
 - Session cookies are HTTP-only and SameSite.
 - Browser state-changing admin requests require CSRF tokens.
-- Bearer-token API requests are exempt from browser CSRF.
+- Machine-authenticated Basic and legacy bearer requests are exempt from browser CSRF.
+- API client secrets are shown only once, stored only as server-peppered HMACs, and can be disabled, revoked, expired, or rotated.
 - Login, create, prepare, and consume paths are rate-limited in memory.
 - Security headers include no-store cache policy, no-referrer, CSP, frame denial, and nosniff.
 - Structured request logging uses request ID, path, status, latency, and keyed IP hash only.
@@ -70,7 +73,7 @@ SecureShare is an internal one-time secret delivery service for short-lived hand
 ## Residual Risks
 
 - In-memory sessions and rate limits are single-instance.
-- A single admin API key is less auditable than per-user identity.
+- The deprecated global admin API key is less auditable than scoped API clients and should be disabled after migration.
 - OIDC, SAML, and MFA are not implemented.
 - Redis-backed shared rate limiting is not implemented.
 - Local Compose uses Vault dev mode and must not be used for production secrets.

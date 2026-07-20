@@ -72,6 +72,7 @@ func main() {
 		Metrics:  metrics,
 		Limits:   limiters,
 		Users:    users,
+		Clients:  users,
 	})
 
 	cleaner := cleanup.NewWorker(cfg, repo, metrics, logger)

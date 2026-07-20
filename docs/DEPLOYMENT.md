@@ -27,10 +27,14 @@ VAULT_ADDR=https://vault.example.internal:8200
 VAULT_TOKEN=...
 VAULT_TRANSIT_KEY=secureshare
 SECURESHARE_ADMIN_API_KEY=...
+LEGACY_ADMIN_API_KEY_ENABLED=false
 TOKEN_HMAC_PEPPER=...
 SESSION_SECRET=...
 CSRF_SECRET=...
 REQUEST_IP_HASH_PEPPER=...
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+BOOTSTRAP_ADMIN_PASSWORD=...
 ```
 
 Then start the app:
@@ -93,6 +97,10 @@ Production PostgreSQL should use:
 - A migration process that backs up before app startup migrations run.
 
 The database stores Vault ciphertext, token HMACs, Argon2id password hashes, and safe metadata. It does not store raw tokens or plaintext payloads.
+
+## API Clients
+
+Use the bootstrap administrator to create scoped API clients at `/admin/api-clients`, then store the one-time `client_secret` in the integration secret manager. New integrations should use Basic auth with `client_id:client_secret`; disable the legacy admin bearer key with `LEGACY_ADMIN_API_KEY_ENABLED=false` after migration.
 
 ## Observability
 

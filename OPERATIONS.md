@@ -11,7 +11,8 @@ Important values:
 - `VAULT_ADDR`: Vault API address.
 - `VAULT_TOKEN`: local dev token or production auth token.
 - `VAULT_TRANSIT_KEY`: default `secureshare`.
-- `SECURESHARE_ADMIN_API_KEY`: internal management credential.
+- `SECURESHARE_ADMIN_API_KEY`: deprecated legacy internal management credential.
+- `LEGACY_ADMIN_API_KEY_ENABLED`: set `false` after integrations move to API clients.
 - `TOKEN_HMAC_PEPPER`: HMAC key for token lookup hashes.
 - `SESSION_SECRET`: signs session cookie IDs.
 - `CSRF_SECRET`: signs session-bound CSRF tokens.
@@ -25,6 +26,18 @@ Important values:
 - `CLEANUP_INTERVAL`: background cleanup cadence.
 
 Outside development, startup fails for weak admin keys, token peppers, session secrets, CSRF secrets, and insecure cookies.
+
+## API Client Operations
+
+Create scoped machine credentials in `/admin/api-clients`. The `client_secret` is displayed only when the client is created or rotated; store it in the integration secret manager immediately.
+
+Use HTTP Basic auth:
+
+```bash
+curl -u "$CLIENT_ID:$CLIENT_SECRET" http://localhost:8080/api/v1/secret-links
+```
+
+Rotate client secrets regularly, set expirations for automation clients, and disable or revoke unused clients. In production, Basic auth requires HTTPS through the public endpoint or trusted reverse proxy.
 
 ## Health Checks
 
@@ -159,7 +172,7 @@ Consumed payload retention defaults to zero, so ciphertext is blanked during suc
 - App exits on startup: check required environment variables and migrations.
 - Readiness fails with Vault unavailable: check `vault-bootstrap` logs and the Transit key.
 - Readiness fails with PostgreSQL unavailable: check `pg_isready`, credentials, and volume state.
-- Admin API returns 401: confirm `SECURESHARE_ADMIN_API_KEY`.
+- API returns 401: confirm API client status, expiration, scopes, and Basic auth credentials. For legacy automation, confirm `SECURESHARE_ADMIN_API_KEY` and `LEGACY_ADMIN_API_KEY_ENABLED=true`.
 - Recipient receives 410: state is intentionally not disclosed.
 - Recipient receives 503: Vault decrypt failed and the secret was restored to active.
 

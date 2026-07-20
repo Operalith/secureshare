@@ -34,14 +34,21 @@ Default local legacy admin API key for machine requests:
 change-me
 ```
 
+The legacy global key is deprecated for new integrations. Create scoped clients in `/admin/api-clients` and authenticate API calls with:
+
+```bash
+curl -u "$CLIENT_ID:$CLIENT_SECRET" ...
+```
+
 The Compose file also supplies development defaults, so `docker compose up -d --build` works before `.env` exists. Copy `.env.example` when you want to edit local settings.
 
 ## What It Does
 
 - Creates one-time secret links with optional title, description, recipient reference, password protection, and expiration.
 - Supports flexible encrypted payloads: structured fields, API keys, username/password combinations, text, JSON, and configuration snippets.
-- Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, system status, help, and light/dark mode.
+- Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, user management, API client management, system status, help, and light/dark mode.
 - Provides safe admin APIs for dashboard statistics, paginated metadata listing, idempotent revoke, and manual cleanup.
+- Supports scoped API clients with one-time client secret display, HMAC-hashed storage, expiration, disable, revoke, and rotation.
 - Uses at least 256 bits of random token entropy.
 - Places the raw token in the URL fragment, for example `http://localhost:8080/s#token`, so browsers do not send it automatically in normal page requests.
 - Stores only `HMAC-SHA256(token_pepper, raw_token)` in PostgreSQL.
@@ -86,7 +93,7 @@ Production must use a persistent initialized and unsealed Vault cluster. Do not 
 
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/secret-links \
-  -H 'Authorization: Bearer change-me' \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
   -H 'Content-Type: application/json' \
   --data '{
     "title": "Merchant production credentials",
@@ -148,6 +155,7 @@ Changing `TOKEN_HMAC_PEPPER` invalidates existing unconsumed links because token
 
 - `health/ready` fails: check `docker compose logs app vault vault-bootstrap postgres`.
 - Vault bootstrap fails: verify `VAULT_TOKEN` matches the Vault dev root token.
+- API client returns `401`: verify the client is active, unexpired, has the required scope, and is using Basic auth as `client_id:client_secret`.
 - Create returns `503`: Vault is not ready or the Transit key is missing.
 - Consume returns `410`: the token is invalid, expired, revoked, locked, or already viewed. The response is intentionally generic.
 - Login fails locally: use the bootstrap user, default `admin` / `change-me-now`, or reset the local database volume.
@@ -169,5 +177,5 @@ Known MVP limitations:
 
 - Sessions and rate limits are in memory.
 - Local Vault runs in dev mode.
-- UI authentication uses local PostgreSQL users and sessions; machine authentication still supports the deprecated global admin API key.
-- OIDC integration, API clients, Redis-backed limits, and shared session storage are not implemented yet.
+- UI authentication uses local PostgreSQL users and sessions; machine authentication supports scoped API clients and the deprecated global admin API key.
+- OIDC integration, Redis-backed limits, and shared session storage are not implemented yet.

@@ -38,6 +38,7 @@ type Dependencies struct {
 	Metrics  *observability.Metrics
 	Limits   *ratelimit.Registry
 	Users    auth.UserStore
+	Clients  auth.APIClientStore
 }
 
 type Server struct {
@@ -50,6 +51,7 @@ type Server struct {
 	metrics   *observability.Metrics
 	limits    *ratelimit.Registry
 	users     auth.UserStore
+	clients   auth.APIClientStore
 	templates *template.Template
 }
 
@@ -86,6 +88,7 @@ func New(deps Dependencies) *Server {
 		metrics:   deps.Metrics,
 		limits:    deps.Limits,
 		users:     deps.Users,
+		clients:   deps.Clients,
 		templates: templates,
 	}
 }
@@ -113,6 +116,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/users/new", s.handleNewUserPage)
 	mux.HandleFunc("/admin/users/", s.handleUserDetailPage)
 	mux.HandleFunc("/admin/account", s.handleAccountPage)
+	mux.HandleFunc("/admin/api-clients", s.handleAPIClientsPage)
+	mux.HandleFunc("/admin/api-clients/new", s.handleNewAPIClientPage)
+	mux.HandleFunc("/admin/api-clients/", s.handleAPIClientDetailPage)
 	mux.HandleFunc("/s", s.handleRecipientPage)
 	mux.HandleFunc("/error", s.handleErrorPage)
 	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
@@ -125,6 +131,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/cleanup", s.handleManualCleanup)
 	mux.HandleFunc("/api/v1/users", s.handleUsersAPI)
 	mux.HandleFunc("/api/v1/users/", s.handleUserAPI)
+	mux.HandleFunc("/api/v1/api-clients", s.handleAPIClientsAPI)
+	mux.HandleFunc("/api/v1/api-clients/", s.handleAPIClientAPI)
 	mux.HandleFunc("/api/v1/secret-links", s.handleSecretLinks)
 	mux.HandleFunc("/api/v1/secret-links/", s.handleSecretLinkByID)
 	mux.HandleFunc("/api/v1/secret-links/prepare", s.handlePrepare)
@@ -305,6 +313,45 @@ func (s *Server) handleAccountPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "account.html", s.adminData(r, map[string]any{"Title": "Account", "Sessions": sessions}))
 }
 
+func (s *Server) handleAPIClientsPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/api-clients" {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requirePage(w, r, "api-client:manage") {
+		return
+	}
+	clients, err := s.clients.ListAPIClients(r.Context())
+	if err != nil {
+		s.logger.Warn("api client list query failed", "error", err)
+	}
+	s.render(w, "api_clients.html", s.adminData(r, map[string]any{"Title": "API Clients", "Clients": clients}))
+}
+
+func (s *Server) handleNewAPIClientPage(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePage(w, r, "api-client:manage") {
+		return
+	}
+	s.render(w, "api_client_new.html", s.adminData(r, map[string]any{"Title": "Create API Client", "Scopes": auth.AllowedAPIScopes()}))
+}
+
+func (s *Server) handleAPIClientDetailPage(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePage(w, r, "api-client:manage") {
+		return
+	}
+	id, err := uuid.Parse(strings.TrimPrefix(r.URL.Path, "/admin/api-clients/"))
+	if err != nil {
+		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "API client metadata is unavailable."})
+		return
+	}
+	client, err := s.clients.APIClientByID(r.Context(), id)
+	if err != nil {
+		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "API client metadata is unavailable."})
+		return
+	}
+	s.render(w, "api_client_detail.html", s.adminData(r, map[string]any{"Title": "API Client Detail", "Client": client}))
+}
+
 func (s *Server) handleRecipientPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
@@ -411,7 +458,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 		return
 	}
-	if bearer := bearerToken(r); bearer != "" && s.validAdminKey(bearer) {
+	if bearer := bearerToken(r); bearer != "" && s.cfg.LegacyAdminAPIKeyEnabled && s.validAdminKey(bearer) {
 		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
@@ -705,6 +752,153 @@ func (s *Server) handleUserAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleAPIClientsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api/v1/api-clients" {
+		http.NotFound(w, r)
+		return
+	}
+	actor, ok := s.requireAPI(w, r, "api-client:manage")
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		clients, err := s.clients.ListAPIClients(r.Context())
+		if err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"items": clients})
+	case http.MethodPost:
+		var req struct {
+			Name      string   `json:"name"`
+			Scopes    []string `json:"scopes"`
+			ExpiresAt string   `json:"expires_at"`
+		}
+		if !s.decodeJSON(w, r, 8192, &req) {
+			return
+		}
+		expiresAt, err := parseOptionalRFC3339(req.ExpiresAt)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		var owner *uuid.UUID
+		if actor.UserID != uuid.Nil {
+			ownerID := actor.UserID
+			owner = &ownerID
+		}
+		result, err := auth.CreateAPIClient(r.Context(), s.clients, s.cfg.TokenHMACPepper, auth.APIClientCreate{
+			Name:        req.Name,
+			OwnerUserID: owner,
+			Scopes:      req.Scopes,
+			ExpiresAt:   expiresAt,
+		})
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+			ActorID:   actor.ActorID,
+			Type:      "api_client.created",
+			Result:    "success",
+			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			RequestID: middleware.RequestID(r.Context()),
+		})
+		s.writeJSON(w, http.StatusCreated, result)
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIClientAPI(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAPI(w, r, "api-client:manage")
+	if !ok {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/api-clients/")
+	idPart := path
+	action := ""
+	if before, after, ok := strings.Cut(path, "/"); ok {
+		idPart = before
+		action = after
+	}
+	id, err := uuid.Parse(idPart)
+	if err != nil {
+		s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+		return
+	}
+	switch {
+	case action == "" && r.Method == http.MethodGet:
+		client, err := s.clients.APIClientByID(r.Context(), id)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, client)
+	case action == "disable" && r.Method == http.MethodPost:
+		client, err := s.clients.SetAPIClientStatus(r.Context(), id, auth.APIClientStatusDisabled)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.recordAPIClientAudit(r, actor, "api_client.disabled")
+		s.writeJSON(w, http.StatusOK, client)
+	case action == "enable" && r.Method == http.MethodPost:
+		current, err := s.clients.APIClientByID(r.Context(), id)
+		if err != nil || current.Status == auth.APIClientStatusRevoked {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		client, err := s.clients.SetAPIClientStatus(r.Context(), id, auth.APIClientStatusActive)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.recordAPIClientAudit(r, actor, "api_client.enabled")
+		s.writeJSON(w, http.StatusOK, client)
+	case action == "revoke" && r.Method == http.MethodPost:
+		client, err := s.clients.SetAPIClientStatus(r.Context(), id, auth.APIClientStatusRevoked)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.recordAPIClientAudit(r, actor, "api_client.revoked")
+		s.writeJSON(w, http.StatusOK, client)
+	case action == "rotate-secret" && r.Method == http.MethodPost:
+		current, err := s.clients.APIClientByID(r.Context(), id)
+		if err != nil || current.Status == auth.APIClientStatusRevoked {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		secret, err := auth.NewAPIClientSecret()
+		if err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		hash := auth.HashAPIClientSecret(s.cfg.TokenHMACPepper, current.ClientID, secret)
+		client, err := s.clients.RotateAPIClientSecret(r.Context(), id, hash)
+		if err != nil {
+			s.writeError(w, delivery.CodeInvalidRequest, "Invalid request.", http.StatusBadRequest)
+			return
+		}
+		s.recordAPIClientAudit(r, actor, "api_client.secret_rotated")
+		s.writeJSON(w, http.StatusOK, auth.APIClientCreateResult{APIClient: client, ClientSecret: secret})
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) recordAPIClientAudit(r *http.Request, actor actor, eventType string) {
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   actor.ActorID,
+		Type:      eventType,
+		Result:    "success",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
+}
+
 func (s *Server) handleSecretLinks(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/v1/secret-links" {
 		http.NotFound(w, r)
@@ -813,7 +1007,7 @@ func (s *Server) handleManualCleanup(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 		return
 	}
-	actor, ok := s.requireAPI(w, r, "secret:revoke")
+	actor, ok := s.requireAPI(w, r, "system:cleanup")
 	if !ok {
 		return
 	}
@@ -922,6 +1116,8 @@ type actor struct {
 	ActorID     string
 	Permissions map[string]bool
 	Bearer      bool
+	APIClient   bool
+	ClientID    string
 	UserID      uuid.UUID
 	Username    string
 	Email       string
@@ -930,7 +1126,10 @@ type actor struct {
 }
 
 func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission string) (actor, bool) {
-	if bearer := bearerToken(r); bearer != "" && s.validAdminKey(bearer) {
+	if client, ok := s.apiClientActor(r, permission); ok {
+		return client, true
+	}
+	if bearer := bearerToken(r); bearer != "" && s.cfg.LegacyAdminAPIKeyEnabled && s.validAdminKey(bearer) {
 		return actor{ActorID: "admin", Permissions: permissionsMap(adminPermissions()), Bearer: true}, true
 	}
 	if session, ok := s.auth.FromRequest(r); ok && session.Permissions[permission] {
@@ -951,6 +1150,32 @@ func (s *Server) requireAPI(w http.ResponseWriter, r *http.Request, permission s
 	}
 	s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
 	return actor{}, false
+}
+
+func (s *Server) apiClientActor(r *http.Request, permission string) (actor, bool) {
+	clientID, secret, ok := r.BasicAuth()
+	if !ok || clientID == "" || secret == "" || s.clients == nil {
+		return actor{}, false
+	}
+	if s.cfg.AppEnv == "production" && !requestHTTPS(r) {
+		return actor{}, false
+	}
+	client, err := s.clients.APIClientByClientID(r.Context(), clientID)
+	if err != nil || !auth.IsAPIClientUsable(client.APIClient) || !auth.VerifyAPIClientSecret(s.cfg.TokenHMACPepper, client.ClientID, secret, client.SecretHash) {
+		return actor{}, false
+	}
+	if !auth.ScopeAllowed(client.Scopes, permission) {
+		return actor{}, false
+	}
+	if err := s.clients.TouchAPIClient(r.Context(), client.ID); err != nil {
+		s.logger.Warn("api client last used update failed", "client_id", client.ClientID, "error", err)
+	}
+	return actor{
+		ActorID:     "api-client:" + client.ClientID,
+		Permissions: scopesMap(client.Scopes),
+		APIClient:   true,
+		ClientID:    client.ClientID,
+	}, true
 }
 
 func (s *Server) validAdminKey(value string) bool {
@@ -1013,6 +1238,13 @@ func bearerToken(r *http.Request) string {
 	return strings.TrimSpace(token)
 }
 
+func requestHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 func adminPermissions() []string {
 	return auth.PermissionsForRole(auth.RoleAdmin)
 }
@@ -1023,6 +1255,27 @@ func permissionsMap(values []string) map[string]bool {
 		out[value] = true
 	}
 	return out
+}
+
+func scopesMap(values []string) map[string]bool {
+	out := permissionsMap(values)
+	if out["secret:list"] {
+		out["secret:read-metadata"] = true
+	}
+	return out
+}
+
+func parseOptionalRFC3339(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, err
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
 }
 
 func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, dst any) bool {

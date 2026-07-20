@@ -9,7 +9,9 @@ Use this checklist before exposing SecureShare outside a local development envir
 - [ ] `APP_ENV=production`.
 - [ ] `COOKIE_SECURE=true`.
 - [ ] `APP_BASE_URL` uses the public `https://` origin.
-- [ ] Strong `SECURESHARE_ADMIN_API_KEY` generated and stored in the secret manager.
+- [ ] Strong `SECURESHARE_ADMIN_API_KEY` generated and stored in the secret manager for temporary legacy compatibility.
+- [ ] Scoped API clients created for integrations.
+- [ ] `LEGACY_ADMIN_API_KEY_ENABLED=false` after legacy integrations migrate.
 - [ ] Strong `TOKEN_HMAC_PEPPER` generated, backed up securely, and access-restricted.
 - [ ] Strong `SESSION_SECRET` generated and stored in the secret manager.
 - [ ] Strong `CSRF_SECRET` generated and stored in the secret manager.
@@ -33,7 +35,7 @@ Use this checklist before exposing SecureShare outside a local development envir
 - [ ] Security test passed: `make security-test`.
 - [ ] Concurrency test passed through integration tests.
 - [ ] Container images scanned.
-- [ ] Admin API key rotated from bootstrap value.
+- [ ] Admin API key rotated from bootstrap value or disabled after API client migration.
 - [ ] Session secrets rotated from bootstrap value.
 - [ ] Token pepper backed up securely and excluded from routine rotation.
 - [ ] Monitoring alerts configured for readiness, Vault errors, latency, rate limits, login failures, CSRF failures, cleanup duration, and active link spikes.
@@ -65,7 +67,7 @@ Inspect application, reverse proxy, Vault audit, and APM logs for the known cana
 
 - Sessions are in memory and are single-instance.
 - Rate limiting is in memory and is single-instance.
-- Admin authentication is a single API key.
+- Machine authentication supports scoped API clients; the deprecated global admin API key may remain enabled during migration.
 - OIDC and SSO are not implemented.
 - Redis-backed shared limiter and session storage are not implemented.
 - Horizontal app replicas require shared session storage and shared rate limiting first.

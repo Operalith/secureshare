@@ -19,6 +19,9 @@
         <a class="active" href="/admin">Dashboard</a>
         <a href="/admin/secrets/new">Create Secret</a>
         <a href="/admin/secrets">Secret Links</a>
+        {{ if hasPermission .Permissions "user:manage" }}<a href="/admin/users">Users</a>{{ end }}
+        {{ if hasPermission .Permissions "api-client:manage" }}<a href="/admin/api-clients">API Clients</a>{{ end }}
+        <a href="/admin/account">Account</a>
         <a href="/admin/status">System Status</a>
         <a href="/admin/help">Help</a>
       </nav>

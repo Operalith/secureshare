@@ -111,6 +111,7 @@ func PermissionsForRole(role string) []string {
 			"secret:revoke",
 			"user:manage",
 			"api-client:manage",
+			"system:cleanup",
 			"api-docs:read",
 			"account:manage",
 		}
@@ -464,6 +465,7 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	users    map[uuid.UUID]UserWithPassword
 	sessions map[string]memorySession
+	clients  map[uuid.UUID]APIClientWithSecret
 }
 
 type memorySession struct {
@@ -477,7 +479,7 @@ type memorySession struct {
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{users: map[uuid.UUID]UserWithPassword{}, sessions: map[string]memorySession{}}
+	return &MemoryStore{users: map[uuid.UUID]UserWithPassword{}, sessions: map[string]memorySession{}, clients: map[uuid.UUID]APIClientWithSecret{}}
 }
 
 func (m *MemoryStore) CountUsers(context.Context) (int, error) {

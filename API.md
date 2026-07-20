@@ -10,14 +10,28 @@ All responses use JSON for API endpoints.
 
 ## Authentication
 
-Internal management endpoints currently accept the deprecated legacy admin key for machine-to-machine compatibility:
+Machine integrations should authenticate with scoped API clients over HTTP Basic auth:
+
+```http
+Authorization: Basic base64(client_id:client_secret)
+```
+
+With curl:
+
+```bash
+curl -u "$CLIENT_ID:$CLIENT_SECRET" ...
+```
+
+API client secrets are shown only at creation or rotation time. The server stores only an HMAC of the client secret with `TOKEN_HMAC_PEPPER`. Basic auth must be used only over HTTPS outside local development.
+
+Internal management endpoints still accept the deprecated legacy admin key for machine-to-machine compatibility when `LEGACY_ADMIN_API_KEY_ENABLED=true`:
 
 ```http
 Authorization: Bearer <admin-api-key>
 ```
 
-The web UI uses PostgreSQL-backed users and stores only an opaque HTTP-only SameSite session cookie. New integrations should move to scoped API clients once available.
-Browser session requests that change state must include the CSRF token from the page meta tag as `X-CSRF-Token` or form field `csrf_token`. Bearer-token API requests are exempt from browser CSRF protection.
+The web UI uses PostgreSQL-backed users and stores only an opaque HTTP-only SameSite session cookie. New integrations should use API clients instead of the legacy global key.
+Browser session requests that change state must include the CSRF token from the page meta tag as `X-CSRF-Token` or form field `csrf_token`. Machine-authenticated Basic and legacy bearer requests are exempt from browser CSRF protection.
 
 JSON endpoints require:
 
@@ -54,7 +68,7 @@ JSON:
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  --data '{"api_key":"change-me"}'
+  --data '{"login":"admin","password":"change-me-now"}'
 ```
 
 Form login is used by `/login`.
@@ -93,7 +107,7 @@ Requires `secret:read-metadata`.
 
 ```bash
 curl -sS http://localhost:8080/api/v1/dashboard \
-  -H 'Authorization: Bearer change-me'
+  -u "$CLIENT_ID:$CLIENT_SECRET"
 ```
 
 Returns safe aggregate counts, recent activity, and dependency status. It does not return labels, recipient values as metrics, payloads, tokens, URLs, or ciphertext.
@@ -117,7 +131,7 @@ Supported query parameters:
 
 ```bash
 curl -sS 'http://localhost:8080/api/v1/secret-links?page=1&page_size=25&status=active' \
-  -H 'Authorization: Bearer change-me'
+  -u "$CLIENT_ID:$CLIENT_SECRET"
 ```
 
 Response:
@@ -142,7 +156,7 @@ Requires `secret:create`.
 
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/secret-links \
-  -H 'Authorization: Bearer change-me' \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
   -H 'Content-Type: application/json' \
   --data '{
     "title": "Merchant production credentials",
@@ -209,7 +223,7 @@ Returns only non-sensitive metadata:
 
 ```bash
 curl -sS http://localhost:8080/api/v1/secret-links/<id> \
-  -H 'Authorization: Bearer change-me'
+  -u "$CLIENT_ID:$CLIENT_SECRET"
 ```
 
 ## POST /api/v1/secret-links/{id}/revoke
@@ -218,7 +232,7 @@ Requires `secret:revoke`.
 
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/secret-links/<id>/revoke \
-  -H 'Authorization: Bearer change-me'
+  -u "$CLIENT_ID:$CLIENT_SECRET"
 ```
 
 Revocation is idempotent. Revoking an active or consuming link blanks ciphertext immediately. Revoking a consumed link does not rewrite consume history.
@@ -233,6 +247,55 @@ curl -sS -X POST http://localhost:8080/api/v1/admin/cleanup \
 ```
 
 Runs the same cleanup logic as the background worker and returns counts for expired rows, payloads cleared, stale consuming leases restored, and audit rows deleted.
+
+## API Client Administration
+
+Admin users can manage API clients from `/admin/api-clients`.
+
+Admin-only endpoints:
+
+- `GET /api/v1/api-clients`
+- `POST /api/v1/api-clients`
+- `GET /api/v1/api-clients/{id}`
+- `POST /api/v1/api-clients/{id}/disable`
+- `POST /api/v1/api-clients/{id}/enable`
+- `POST /api/v1/api-clients/{id}/revoke`
+- `POST /api/v1/api-clients/{id}/rotate-secret`
+
+Create request:
+
+```json
+{
+  "name": "CI deployment bot",
+  "scopes": ["secret:create", "secret:read-metadata"],
+  "expires_at": "2026-08-20T00:00:00Z"
+}
+```
+
+Create and rotate responses include `client_secret` exactly once:
+
+```json
+{
+  "id": "client-id",
+  "name": "CI deployment bot",
+  "client_id": "ssc_example",
+  "client_secret": "sscs_copy_once",
+  "status": "active",
+  "scopes": ["secret:create"]
+}
+```
+
+List and detail responses never include `client_secret` or `client_secret_hash`.
+
+Supported API client scopes:
+
+- `secret:create`
+- `secret:list`
+- `secret:read-metadata`
+- `secret:revoke`
+- `dashboard:read`
+
+Use `LEGACY_ADMIN_API_KEY_ENABLED=false` after integrations migrate to API clients.
 
 ## POST /api/v1/secret-links/prepare
 

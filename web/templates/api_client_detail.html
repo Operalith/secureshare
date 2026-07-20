@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API Client Detail - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation"><a href="/admin">Dashboard</a><a href="/admin/secrets/new">Create Secret</a><a href="/admin/secrets">Secret Links</a><a href="/admin/users">Users</a><a class="active" href="/admin/api-clients">API Clients</a><a href="/admin/account">Account</a><a href="/admin/status">System Status</a><a href="/admin/help">Help</a></nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Developer access</p><h1>{{ .Client.Name }}</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">Safe metadata</p><h2>Client profile</h2></div>
+            <span class="badge {{ if eq .Client.Status "active" }}success{{ else if eq .Client.Status "disabled" }}warning{{ else }}danger{{ end }}">{{ .Client.Status }}</span>
+          </div>
+          <div class="status-list">
+            <div><span>Name</span><strong>{{ .Client.Name }}</strong></div>
+            <div><span>Client ID</span><strong class="technical-value">{{ .Client.ClientID }}</strong></div>
+            <div><span>Owner user</span><strong class="technical-value">{{ if .Client.OwnerUserID }}{{ .Client.OwnerUserID }}{{ else }}Not recorded{{ end }}</strong></div>
+            <div><span>Scopes</span><strong class="scope-list">{{ range .Client.Scopes }}<span class="badge neutral technical-value">{{ . }}</span>{{ end }}</strong></div>
+            <div><span>Last used</span><strong>{{ formatOptionalTime .Client.LastUsedAt }}</strong></div>
+            <div><span>Expires</span><strong>{{ formatOptionalTime .Client.ExpiresAt }}</strong></div>
+            <div><span>Created</span><strong>{{ formatTime .Client.CreatedAt }}</strong></div>
+            <div><span>Updated</span><strong>{{ formatTime .Client.UpdatedAt }}</strong></div>
+          </div>
+          <div class="actions action-row">
+            {{ if eq .Client.Status "active" }}
+            <button type="button" class="danger" data-api-client-action="disable" data-api-client-id="{{ .Client.ID }}">Disable</button>
+            {{ else if eq .Client.Status "disabled" }}
+            <button type="button" data-api-client-action="enable" data-api-client-id="{{ .Client.ID }}">Enable</button>
+            {{ end }}
+            {{ if ne .Client.Status "revoked" }}
+            <button type="button" class="secondary" data-api-client-action="rotate-secret" data-api-client-id="{{ .Client.ID }}">Rotate secret</button>
+            <button type="button" class="danger" data-api-client-action="revoke" data-api-client-id="{{ .Client.ID }}">Revoke</button>
+            {{ end }}
+            <a class="button-link secondary-link" href="/admin/api-clients">Back</a>
+          </div>
+        </section>
+        <section id="api-client-rotated" class="success-panel hidden" data-api-client-result>
+          <div class="section-heading"><div><p class="eyebrow">Copy now</p><h2>Rotated credentials</h2></div></div>
+          <div class="credential-grid">
+            <label>Client ID<span class="input-with-action"><input id="api-client-id" class="technical-value" readonly><button type="button" class="ghost compact" data-copy-target="#api-client-id">Copy</button></span></label>
+            <label>Client secret<span class="input-with-action"><input id="api-client-secret" class="technical-value" readonly><button type="button" class="ghost compact" data-copy-target="#api-client-secret">Copy</button></span></label>
+          </div>
+          <p class="fine-print">The previous secret no longer authenticates. This new secret is shown only once.</p>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <dialog class="confirm-dialog" data-confirm-dialog>
+    <form method="dialog">
+      <h2 data-confirm-title>Confirm action</h2>
+      <p data-confirm-message></p>
+      <div class="actions"><button value="confirm" class="danger">Confirm</button><button value="cancel" class="ghost">Cancel</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

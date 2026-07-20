@@ -433,6 +433,120 @@
     });
   }
 
+  function setupAPIClients() {
+    const resultPanel = qs("[data-api-client-result]");
+
+    function selectedScopes(form) {
+      return qsa('input[name="scopes"]:checked', form).map((input) => input.value);
+    }
+
+    function expirationValue(raw) {
+      const value = String(raw || "").trim();
+      if (!value) return "";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) throw new Error("Expiration must be a valid date and time.");
+      return parsed.toISOString();
+    }
+
+    function showCredentials(client) {
+      const idInput = qs("#api-client-id");
+      const secretInput = qs("#api-client-secret");
+      if (idInput) idInput.value = client.client_id || "";
+      if (secretInput) secretInput.value = client.client_secret || "";
+      const viewLink = qs("#view-api-client");
+      if (viewLink && client.id) viewLink.href = `/admin/api-clients/${client.id}`;
+      resultPanel?.classList.remove("hidden");
+      resultPanel?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+
+    const createForm = qs("[data-api-client-create]");
+    createForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.submitter || createForm.querySelector('button[type="submit"]');
+      const error = qs("[data-form-error]", createForm);
+      if (error) error.textContent = "";
+      resultPanel?.classList.add("hidden");
+      const data = new FormData(createForm);
+      let expiresAt = "";
+      try {
+        expiresAt = expirationValue(data.get("expires_at"));
+      } catch (err) {
+        if (error) error.textContent = err.message;
+        return;
+      }
+      const payload = {
+        name: String(data.get("name") || ""),
+        scopes: selectedScopes(createForm),
+        expires_at: expiresAt,
+      };
+      setButtonLoading(submit, true);
+      try {
+        const response = await fetch("/api/v1/api-clients", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (error) error.textContent = body.message || "API client could not be created.";
+          return;
+        }
+        showCredentials(body);
+        toast("API client created.");
+        createForm.reset();
+      } finally {
+        setButtonLoading(submit, false);
+      }
+    });
+
+    document.addEventListener("click", async (event) => {
+      const copyButton = event.target.closest("[data-copy-target]");
+      if (!copyButton) return;
+      const input = qs(copyButton.dataset.copyTarget);
+      if (!input) return;
+      await navigator.clipboard.writeText(input.value);
+      toast("Copied.");
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-api-client-action]");
+      if (!button) return;
+      const id = button.dataset.apiClientId;
+      const action = button.dataset.apiClientAction;
+      const labels = {
+        disable: ["Disable this API client?", "Existing integrations using this client will stop authenticating."],
+        enable: ["Enable this API client?", "Integrations can authenticate again if the client has not expired."],
+        revoke: ["Revoke this API client?", "Revoked clients cannot authenticate and the secret cannot be recovered."],
+        "rotate-secret": ["Rotate this client secret?", "The previous client secret will stop authenticating immediately."],
+      };
+      const [title, message] = labels[action] || ["Confirm action?", "This change takes effect immediately."];
+      const ok = await confirmAction(title, message);
+      if (!ok) return;
+      button.disabled = true;
+      resultPanel?.classList.add("hidden");
+      const response = await fetch(`/api/v1/api-clients/${id}/${action}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: csrfHeaders(),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        toast("API client update failed.");
+        button.disabled = false;
+        return;
+      }
+      if (action === "rotate-secret") {
+        showCredentials(body);
+        toast("Client secret rotated.");
+        button.disabled = false;
+        return;
+      }
+      toast("API client updated.");
+      window.location.reload();
+    });
+  }
+
   function setupAccount() {
     const form = qs("[data-change-password]");
     form?.addEventListener("submit", async (event) => {
@@ -484,5 +598,6 @@
   setupCreateSecret();
   setupRevokeButtons();
   setupUserManagement();
+  setupAPIClients();
   setupAccount();
 })();

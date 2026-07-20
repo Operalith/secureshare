@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Users - SecureShare</title>
+  <title>API Clients - SecureShare</title>
   <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/admin.js" defer></script>
@@ -16,8 +16,8 @@
         <a href="/admin">Dashboard</a>
         <a href="/admin/secrets/new">Create Secret</a>
         <a href="/admin/secrets">Secret Links</a>
-        <a class="active" href="/admin/users">Users</a>
-        <a href="/admin/api-clients">API Clients</a>
+        <a href="/admin/users">Users</a>
+        <a class="active" href="/admin/api-clients">API Clients</a>
         <a href="/admin/account">Account</a>
         <a href="/admin/status">System Status</a>
         <a href="/admin/help">Help</a>
@@ -26,34 +26,34 @@
     <div class="workspace">
       <header class="app-header">
         <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
-        <div><p class="eyebrow">Access control</p><h1>Users</h1></div>
+        <div><p class="eyebrow">Developer access</p><h1>API Clients</h1></div>
         <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
       </header>
       <main class="content-grid">
         <section class="panel">
           <div class="section-heading">
-            <div><p class="eyebrow">PostgreSQL-backed identities</p><h2>User directory</h2></div>
-            <a class="button-link compact" href="/admin/users/new">Create user</a>
+            <div><p class="eyebrow">Scoped machine credentials</p><h2>Client directory</h2></div>
+            <a class="button-link compact" href="/admin/api-clients/new">Create client</a>
           </div>
-          {{ if .Users }}
+          {{ if .Clients }}
           <div class="responsive-table">
             <table>
-              <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Created</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Name</th><th>Client ID</th><th>Status</th><th>Scopes</th><th>Last used</th><th>Expires</th><th>Actions</th></tr></thead>
               <tbody>
-                {{ range .Users }}
+                {{ range .Clients }}
                 <tr>
-                  <td data-label="Username" class="technical-value"><a href="/admin/users/{{ .ID }}">{{ .Username }}</a></td>
-                  <td data-label="Email">{{ .Email }}</td>
-                  <td data-label="Role"><span class="badge neutral">{{ .Role }}</span></td>
-                  <td data-label="Status"><span class="badge {{ if eq .Status "active" }}success{{ else }}danger{{ end }}">{{ .Status }}</span></td>
-                  <td data-label="Last login">{{ formatOptionalTime .LastLoginAt }}</td>
-                  <td data-label="Created">{{ formatTime .CreatedAt }}</td>
+                  <td data-label="Name"><a href="/admin/api-clients/{{ .ID }}">{{ .Name }}</a></td>
+                  <td data-label="Client ID" class="technical-value">{{ .ClientID }}</td>
+                  <td data-label="Status"><span class="badge {{ if eq .Status "active" }}success{{ else if eq .Status "disabled" }}warning{{ else }}danger{{ end }}">{{ .Status }}</span></td>
+                  <td data-label="Scopes" class="scope-list">{{ range .Scopes }}<span class="badge neutral technical-value">{{ . }}</span>{{ end }}</td>
+                  <td data-label="Last used">{{ formatOptionalTime .LastUsedAt }}</td>
+                  <td data-label="Expires">{{ formatOptionalTime .ExpiresAt }}</td>
                   <td data-label="Actions" class="table-actions">
-                    <a href="/admin/users/{{ .ID }}">View</a>
+                    <a href="/admin/api-clients/{{ .ID }}">View</a>
                     {{ if eq .Status "active" }}
-                    <button type="button" class="danger compact" data-user-action="disable" data-user-id="{{ .ID }}">Disable</button>
-                    {{ else }}
-                    <button type="button" class="compact" data-user-action="enable" data-user-id="{{ .ID }}">Enable</button>
+                    <button type="button" class="danger compact" data-api-client-action="disable" data-api-client-id="{{ .ID }}">Disable</button>
+                    {{ else if eq .Status "disabled" }}
+                    <button type="button" class="compact" data-api-client-action="enable" data-api-client-id="{{ .ID }}">Enable</button>
                     {{ end }}
                   </td>
                 </tr>
@@ -62,12 +62,19 @@
             </table>
           </div>
           {{ else }}
-          <div class="empty-state"><strong>No users yet</strong><span>Create the first local admin user.</span></div>
+          <div class="empty-state"><strong>No API clients yet</strong><span>Create a scoped client for integrations and automation.</span></div>
           {{ end }}
         </section>
       </main>
     </div>
   </div>
   <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <dialog class="confirm-dialog" data-confirm-dialog>
+    <form method="dialog">
+      <h2 data-confirm-title>Confirm action</h2>
+      <p data-confirm-message></p>
+      <div class="actions"><button value="confirm" class="danger">Confirm</button><button value="cancel" class="ghost">Cancel</button></div>
+    </form>
+  </dialog>
 </body>
 </html>

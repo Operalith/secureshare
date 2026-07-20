@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -36,7 +37,14 @@ func TestLoginPageRendering(t *testing.T) {
 func TestAdminPagesRendering(t *testing.T) {
 	app := testServer()
 	cookie := loginCookie(t, app)
-	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/account", "/admin/status", "/admin/help"} {
+	client, err := auth.CreateAPIClient(context.Background(), app.clients, app.cfg.TokenHMACPepper, auth.APIClientCreate{
+		Name:   "Render test client",
+		Scopes: []string{"secret:create"},
+	})
+	if err != nil {
+		t.Fatalf("create api client fixture: %v", err)
+	}
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/account", "/admin/status", "/admin/help"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.AddCookie(cookie)
@@ -90,6 +98,9 @@ func TestNoExternalAssetsOrBrowserStorageUsage(t *testing.T) {
 		"../../web/templates/users.html",
 		"../../web/templates/user_new.html",
 		"../../web/templates/user_detail.html",
+		"../../web/templates/api_clients.html",
+		"../../web/templates/api_client_new.html",
+		"../../web/templates/api_client_detail.html",
 		"../../web/templates/account.html",
 		"../../web/templates/status.html",
 		"../../web/templates/help.html",
@@ -195,20 +206,28 @@ func loginSession(t *testing.T, app *Server, login, password string) (*http.Cook
 }
 
 func testServer() *Server {
+	return testServerWithConfig(nil)
+}
+
+func testServerWithConfig(configure func(*config.Config)) *Server {
 	cfg := config.Config{
-		AppEnv:              "development",
-		AppBaseURL:          "http://localhost:8080",
-		AdminAPIKey:         "change-me",
-		TokenHMACPepper:     "test-pepper-with-enough-length",
-		SessionSecret:       "test-session-secret-with-enough-length",
-		CSRFSecret:          "test-csrf-secret-with-enough-length",
-		SessionTTL:          time.Hour,
-		SessionIdleTimeout:  30 * time.Minute,
-		RequestIPHashPepper: "ip-pepper-with-enough-length",
-		MaxSecretTTL:        7 * 24 * time.Hour,
-		DefaultSecretTTL:    24 * time.Hour,
-		ConsumingLeaseTTL:   30 * time.Second,
-		MaxSecretBytes:      config.DefaultMaxSecretBytes,
+		AppEnv:                   "development",
+		AppBaseURL:               "http://localhost:8080",
+		AdminAPIKey:              "change-me",
+		LegacyAdminAPIKeyEnabled: true,
+		TokenHMACPepper:          "test-pepper-with-enough-length",
+		SessionSecret:            "test-session-secret-with-enough-length",
+		CSRFSecret:               "test-csrf-secret-with-enough-length",
+		SessionTTL:               time.Hour,
+		SessionIdleTimeout:       30 * time.Minute,
+		RequestIPHashPepper:      "ip-pepper-with-enough-length",
+		MaxSecretTTL:             7 * 24 * time.Hour,
+		DefaultSecretTTL:         24 * time.Hour,
+		ConsumingLeaseTTL:        30 * time.Second,
+		MaxSecretBytes:           config.DefaultMaxSecretBytes,
+	}
+	if configure != nil {
+		configure(&cfg)
 	}
 	users := auth.NewMemoryStore()
 	if _, err := users.CreateUser(context.Background(), auth.UserCreate{
@@ -228,6 +247,7 @@ func testServer() *Server {
 		Metrics:  observability.New(),
 		Limits:   ratelimit.NewRegistry(),
 		Users:    users,
+		Clients:  users,
 	})
 }
 
@@ -471,4 +491,175 @@ func TestUserManagementDisableAndPasswordReset(t *testing.T) {
 		t.Fatalf("reset password = %d, want 200: %s", resetRec.Code, resetRec.Body.String())
 	}
 	loginSession(t, app, "developer1", "new developer passphrase")
+}
+
+func TestAPIClientManagementShowsSecretOnlyOnce(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	created, raw := createAPIClientViaHTTP(t, app, cookie, csrf, "One-time display client", []string{"secret:create"}, "")
+	if created.ClientSecret == "" {
+		t.Fatal("create response did not include one-time client secret")
+	}
+	if !strings.Contains(raw, created.ClientSecret) {
+		t.Fatal("create response did not contain the generated client secret")
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/api-clients", nil)
+	listReq.AddCookie(cookie)
+	listRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list api clients = %d, want 200: %s", listRec.Code, listRec.Body.String())
+	}
+	if strings.Contains(listRec.Body.String(), created.ClientSecret) || strings.Contains(listRec.Body.String(), "client_secret") || strings.Contains(listRec.Body.String(), "client_secret_hash") {
+		t.Fatalf("list response leaked client secret material: %s", listRec.Body.String())
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/v1/api-clients/"+created.ID.String(), nil)
+	detailReq.AddCookie(cookie)
+	detailRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("get api client = %d, want 200: %s", detailRec.Code, detailRec.Body.String())
+	}
+	if strings.Contains(detailRec.Body.String(), created.ClientSecret) || strings.Contains(detailRec.Body.String(), "client_secret") || strings.Contains(detailRec.Body.String(), "client_secret_hash") {
+		t.Fatalf("detail response leaked client secret material: %s", detailRec.Body.String())
+	}
+}
+
+func TestAPIClientBasicAuthScopesRotationAndRevocation(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	created, _ := createAPIClientViaHTTP(t, app, cookie, csrf, "Scoped creator", []string{"secret:create"}, "")
+
+	createStatus := createSecretWithBasic(t, app, created.ClientID, created.ClientSecret, "basic-auth-secret")
+	if createStatus != http.StatusCreated {
+		t.Fatalf("basic-auth create = %d, want 201", createStatus)
+	}
+	if got := createSecretWithBasic(t, app, created.ClientID, "wrong-secret", "wrong-secret-payload"); got != http.StatusUnauthorized {
+		t.Fatalf("invalid basic auth = %d, want 401", got)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/secret-links", nil)
+	listReq.SetBasicAuth(created.ClientID, created.ClientSecret)
+	listRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusUnauthorized {
+		t.Fatalf("client without read scope listed secrets: status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	actionStatus := apiClientAction(t, app, cookie, csrf, created.ID.String(), "disable")
+	if actionStatus != http.StatusOK {
+		t.Fatalf("disable api client = %d, want 200", actionStatus)
+	}
+	if got := createSecretWithBasic(t, app, created.ClientID, created.ClientSecret, "disabled-secret"); got != http.StatusUnauthorized {
+		t.Fatalf("disabled client create = %d, want 401", got)
+	}
+
+	rotated := rotateAPIClient(t, app, cookie, csrf, created.ID.String())
+	if rotated.ClientSecret == "" || rotated.ClientSecret == created.ClientSecret {
+		t.Fatal("rotation did not return a new one-time secret")
+	}
+	if got := createSecretWithBasic(t, app, created.ClientID, created.ClientSecret, "old-rotated-secret"); got != http.StatusUnauthorized {
+		t.Fatalf("old rotated client secret = %d, want 401", got)
+	}
+	if got := createSecretWithBasic(t, app, rotated.ClientID, rotated.ClientSecret, "new-rotated-secret"); got != http.StatusCreated {
+		t.Fatalf("new rotated client secret = %d, want 201", got)
+	}
+
+	actionStatus = apiClientAction(t, app, cookie, csrf, created.ID.String(), "revoke")
+	if actionStatus != http.StatusOK {
+		t.Fatalf("revoke api client = %d, want 200", actionStatus)
+	}
+	if got := createSecretWithBasic(t, app, rotated.ClientID, rotated.ClientSecret, "revoked-secret"); got != http.StatusUnauthorized {
+		t.Fatalf("revoked client create = %d, want 401", got)
+	}
+}
+
+func TestExpiredAPIClientRejected(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	expired := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	created, _ := createAPIClientViaHTTP(t, app, cookie, csrf, "Expired client", []string{"secret:create"}, expired)
+	if got := createSecretWithBasic(t, app, created.ClientID, created.ClientSecret, "expired-client-secret"); got != http.StatusUnauthorized {
+		t.Fatalf("expired client create = %d, want 401", got)
+	}
+}
+
+func TestLegacyAPIKeyDisabledMode(t *testing.T) {
+	app := testServerWithConfig(func(cfg *config.Config) {
+		cfg.LegacyAdminAPIKeyEnabled = false
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"blocked","expires_in_seconds":900}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer change-me")
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy bearer with disabled mode = %d, want 401", rec.Code)
+	}
+}
+
+func createAPIClientViaHTTP(t *testing.T, app *Server, cookie *http.Cookie, csrf, name string, scopes []string, expiresAt string) (auth.APIClientCreateResult, string) {
+	t.Helper()
+	payload := map[string]any{
+		"name":       name,
+		"scopes":     scopes,
+		"expires_at": expiresAt,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/api-clients", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create api client = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	var created auth.APIClientCreateResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	return created, rec.Body.String()
+}
+
+func rotateAPIClient(t *testing.T, app *Server, cookie *http.Cookie, csrf, id string) auth.APIClientCreateResult {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/api-clients/"+id+"/rotate-secret", nil)
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate api client = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var rotated auth.APIClientCreateResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &rotated); err != nil {
+		t.Fatal(err)
+	}
+	return rotated
+}
+
+func apiClientAction(t *testing.T, app *Server, cookie *http.Cookie, csrf, id, action string) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/api-clients/"+id+"/"+action, nil)
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func createSecretWithBasic(t *testing.T, app *Server, clientID, clientSecret, value string) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"`+value+`","expires_in_seconds":900}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(clientID, clientSecret)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	return rec.Code
 }

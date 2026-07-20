@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create API Client - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation"><a href="/admin">Dashboard</a><a href="/admin/secrets/new">Create Secret</a><a href="/admin/secrets">Secret Links</a><a href="/admin/users">Users</a><a class="active" href="/admin/api-clients">API Clients</a><a href="/admin/account">Account</a><a href="/admin/status">System Status</a><a href="/admin/help">Help</a></nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Developer access</p><h1>Create API Client</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="panel form-section">
+          <div class="section-heading"><div><p class="eyebrow">Shown once</p><h2>Client details</h2></div><a class="secondary-link compact" href="/admin/api-clients">Back</a></div>
+          <form class="form-stack" data-api-client-create>
+            <label>Name<input name="name" maxlength="255" placeholder="CI deployment bot" required></label>
+            <fieldset class="fieldset-grid">
+              <legend>Scopes</legend>
+              {{ range .Scopes }}
+              <label class="checkbox-line"><input type="checkbox" name="scopes" value="{{ . }}" {{ if eq . "secret:create" }}checked{{ end }}> <span class="technical-value">{{ . }}</span></label>
+              {{ end }}
+            </fieldset>
+            <label>Expiration<input type="datetime-local" name="expires_at"><span class="fine-print">Leave empty for no expiration. Production clients should usually expire.</span></label>
+            <p class="form-error" data-form-error></p>
+            <div class="actions"><button type="submit" data-loading-text="Creating...">Create client</button></div>
+          </form>
+        </section>
+        <section id="api-client-created" class="success-panel hidden" data-api-client-result>
+          <div class="section-heading"><div><p class="eyebrow">Copy now</p><h2>Client credentials</h2></div></div>
+          <div class="credential-grid">
+            <label>Client ID<span class="input-with-action"><input id="api-client-id" class="technical-value" readonly><button type="button" class="ghost compact" data-copy-target="#api-client-id">Copy</button></span></label>
+            <label>Client secret<span class="input-with-action"><input id="api-client-secret" class="technical-value" readonly><button type="button" class="ghost compact" data-copy-target="#api-client-secret">Copy</button></span></label>
+          </div>
+          <p class="fine-print">The client secret is not stored in plaintext and cannot be retrieved later.</p>
+          <div class="actions"><a id="view-api-client" class="button-link secondary-link" href="/admin/api-clients">View metadata</a></div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

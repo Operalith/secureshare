@@ -57,6 +57,7 @@ services:
       VAULT_TOKEN: ${VAULT_TOKEN:-root}
       VAULT_TRANSIT_KEY: ${VAULT_TRANSIT_KEY:-secureshare}
       SECURESHARE_ADMIN_API_KEY: ${SECURESHARE_ADMIN_API_KEY:-change-me}
+      LEGACY_ADMIN_API_KEY_ENABLED: ${LEGACY_ADMIN_API_KEY_ENABLED:-true}
       TOKEN_HMAC_PEPPER: ${TOKEN_HMAC_PEPPER:-replace-with-a-long-random-value-at-least-32-bytes}
       SESSION_SECRET: ${SESSION_SECRET:-replace-with-a-long-random-value-at-least-32-bytes}
       CSRF_SECRET: ${CSRF_SECRET:-replace-with-a-long-random-value-at-least-32-bytes}

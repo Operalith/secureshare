@@ -612,6 +612,22 @@ p {
   grid-column: 1 / -1;
 }
 
+.fieldset-grid {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.fieldset-grid legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+}
+
 label {
   display: grid;
   gap: 8px;
@@ -725,6 +741,23 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.scope-list,
+.credential-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.credential-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.action-row {
+  margin-top: 18px;
 }
 
 .icon-button {
