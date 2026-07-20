@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ -f "${ROOT_DIR}/.env" ]]; then
+if [[ -f "${ROOT_DIR}/.env" && "${SECURESHARE_SKIP_ENV_FILE:-}" != "1" ]]; then
   set -a
   # shellcheck disable=SC1091
   source "${ROOT_DIR}/.env"
@@ -13,7 +13,7 @@ BASE_URL="${APP_BASE_URL:-http://localhost:8080}"
 ADMIN_KEY="${SECURESHARE_ADMIN_API_KEY:-change-me}"
 ADMIN_USERNAME="${BOOTSTRAP_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}"
-CANARY="security-canary-$(date +%s)-$$"
+CANARY="${SECURESHARE_TEST_RUN_ID:-security-canary-$(date +%s)-$$}"
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
@@ -61,12 +61,20 @@ wait_ready() {
   exit 1
 }
 
+compose_logs() {
+  if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    docker compose -f "${ROOT_DIR}/docker-compose.yml" logs --no-color "${SECURESHARE_APP_SERVICE:-app}" 2>/dev/null || true
+    return 0
+  fi
+  docker compose -f "${ROOT_DIR}/docker-compose.yml" -p "${COMPOSE_PROJECT_NAME}" logs --no-color "${SECURESHARE_APP_SERVICE:-app}" 2>/dev/null || true
+}
+
 create_secret() {
   local title="$1"
   local secret_json="$2"
   local extra="${3:-}"
   local payload
-  payload="{\"title\":\"${title}\",\"secret\":${secret_json},\"expires_in_seconds\":900,\"max_failed_attempts\":5${extra}}"
+  payload="{\"title\":\"${title}-${CANARY}\",\"recipient_reference\":\"${CANARY}\",\"secret\":${secret_json},\"expires_in_seconds\":900,\"max_failed_attempts\":5${extra}}"
   local result
   result="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links" \
     -H "Authorization: Bearer ${ADMIN_KEY}" \
@@ -169,11 +177,11 @@ grep -qi '^Content-Security-Policy:' "${headers}"
 grep -qi '^X-Frame-Options: DENY' "${headers}"
 grep -qi '^X-Content-Type-Options: nosniff' "${headers}"
 
-if docker compose -f "${ROOT_DIR}/docker-compose.yml" logs --no-color app 2>/dev/null | grep -F "${CANARY}" >/dev/null; then
+if compose_logs | grep -F "${CANARY}" >/dev/null; then
   echo "canary secret appeared in app logs" >&2
   exit 1
 fi
-if docker compose -f "${ROOT_DIR}/docker-compose.yml" logs --no-color app 2>/dev/null | grep -F "${first_token}" >/dev/null; then
+if compose_logs | grep -F "${first_token}" >/dev/null; then
   echo "raw token appeared in app logs" >&2
   exit 1
 fi

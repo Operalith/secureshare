@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -171,11 +172,86 @@ func TestRateLimitIntegration(t *testing.T) {
 	}
 }
 
+func TestSMTPEmailDeliveryIntegration(t *testing.T) {
+	client := integrationClient(t)
+	if !client.testSMTPEnabled {
+		t.Skip("set TEST_SMTP_ENABLED=true and provide Mailpit to run SMTP capture checks")
+	}
+	client.clearMailpit(t)
+	client.configureSMTP(t)
+
+	status, body := client.postJSON(t, "/api/v1/settings/email/test-connection", map[string]any{}, map[string]string{
+		"Authorization": "Bearer " + client.adminKey,
+	})
+	if status != 200 || body["ok"] != true {
+		t.Fatalf("SMTP connection test = %d %#v, want ok", status, body)
+	}
+
+	status, body = client.postJSON(t, "/api/v1/settings/email/send-test", map[string]any{"to": "integration-recipient@example.local"}, map[string]string{
+		"Authorization": "Bearer " + client.adminKey,
+	})
+	if status != 200 || body["ok"] != true {
+		t.Fatalf("SMTP test delivery = %d %#v, want ok", status, body)
+	}
+
+	username := "integration-user-" + client.runID
+	password := "integration-password-" + client.runID
+	apiKey := "integration-api-key-" + client.runID
+	created := client.create(t, map[string]any{
+		"title":              "Integration SMTP delivery",
+		"expires_in_seconds": 900,
+		"payload": map[string]any{
+			"type": "structured",
+			"fields": []map[string]any{
+				{"name": "username", "label": "Username", "value": username, "sensitive": false, "multiline": false},
+				{"name": "password", "label": "Password", "value": password, "sensitive": true, "multiline": false},
+				{"name": "api_key", "label": "API Key", "value": apiKey, "sensitive": true, "multiline": false},
+			},
+		},
+		"delivery": map[string]any{
+			"email": map[string]any{
+				"send":                 true,
+				"to":                   "integration-recipient@example.local",
+				"recipient_name":       "Integration Recipient",
+				"use_default_template": false,
+				"subject":              "Integration secure package",
+				"message":              "Hello {{recipient_name}},\n\nIntegration custom delivery message.\n\n{{secure_link}}\n\nExpires at {{expires_at}}.",
+			},
+		},
+	})
+
+	client.assertMailpitMessage(t, "Integration secure package", "Integration custom delivery message", []string{username, password, apiKey})
+
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token}, nil)
+	if status != 200 {
+		t.Fatalf("consume emailed secret = %d %#v, want 200", status, body)
+	}
+	payload := body["payload"].(map[string]any)
+	fields := payload["fields"].([]any)
+	seen := map[string]string{}
+	for _, rawField := range fields {
+		field := rawField.(map[string]any)
+		seen[field["name"].(string)] = field["value"].(string)
+	}
+	if seen["username"] != username || seen["password"] != password || seen["api_key"] != apiKey {
+		t.Fatalf("consumed payload = %#v, want all credential fields once", seen)
+	}
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token}, nil)
+	if status != 410 || body["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("second consume emailed secret = %d %#v, want generic 410", status, body)
+	}
+}
+
 type integration struct {
-	baseURL     string
-	adminKey    string
-	databaseURL string
-	http        *http.Client
+	baseURL         string
+	adminKey        string
+	databaseURL     string
+	runID           string
+	testSMTPEnabled bool
+	testSMTPHost    string
+	testSMTPPort    int
+	mailpitURL      string
+	http            *http.Client
 }
 
 type createdSecret struct {
@@ -191,10 +267,15 @@ func integrationClient(t *testing.T) *integration {
 	}
 	baseURL := getenv("APP_BASE_URL", "http://localhost:8080")
 	client := &integration{
-		baseURL:     strings.TrimRight(baseURL, "/"),
-		adminKey:    getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
-		databaseURL: getenv("INTEGRATION_DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),
-		http:        &http.Client{Timeout: 10 * time.Second},
+		baseURL:         strings.TrimRight(baseURL, "/"),
+		adminKey:        getenv("SECURESHARE_ADMIN_API_KEY", "change-me"),
+		databaseURL:     getenv("INTEGRATION_DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),
+		runID:           getenv("SECURESHARE_TEST_RUN_ID", fmt.Sprintf("integration-test-%d", time.Now().UnixNano())),
+		testSMTPEnabled: getenv("TEST_SMTP_ENABLED", "false") == "true",
+		testSMTPHost:    getenv("TEST_SMTP_HOST", "mailpit"),
+		testSMTPPort:    getenvInt("TEST_SMTP_PORT", 1025),
+		mailpitURL:      strings.TrimRight(getenv("MAILPIT_API_URL", "http://localhost:8025"), "/"),
+		http:            &http.Client{Timeout: 10 * time.Second},
 	}
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
@@ -214,6 +295,12 @@ func integrationClient(t *testing.T) *integration {
 
 func (c *integration) create(t *testing.T, payload map[string]any) createdSecret {
 	t.Helper()
+	if _, ok := payload["recipient_reference"]; !ok {
+		payload["recipient_reference"] = c.runID
+	}
+	if title, ok := payload["title"].(string); ok && !strings.Contains(title, c.runID) {
+		payload["title"] = title + " " + c.runID
+	}
 	status, body := c.postJSON(t, "/api/v1/secret-links", payload, map[string]string{
 		"Authorization": "Bearer " + c.adminKey,
 	})
@@ -230,11 +317,21 @@ func (c *integration) create(t *testing.T, payload map[string]any) createdSecret
 
 func (c *integration) postJSON(t *testing.T, path string, payload any, headers map[string]string) (int, map[string]any) {
 	t.Helper()
+	return c.doJSON(t, http.MethodPost, path, payload, headers)
+}
+
+func (c *integration) putJSON(t *testing.T, path string, payload any, headers map[string]string) (int, map[string]any) {
+	t.Helper()
+	return c.doJSON(t, http.MethodPut, path, payload, headers)
+}
+
+func (c *integration) doJSON(t *testing.T, method, path string, payload any, headers map[string]string) (int, map[string]any) {
+	t.Helper()
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, bytes.NewReader(raw))
+	req, err := http.NewRequest(method, c.baseURL+path, bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,11 +410,149 @@ func (c *integration) assertAuditEvent(t *testing.T, eventType string) {
 	}
 }
 
+func (c *integration) configureSMTP(t *testing.T) {
+	t.Helper()
+	status, body := c.putJSON(t, "/api/v1/settings/email", map[string]any{
+		"enabled":                    true,
+		"smtp_host":                  c.testSMTPHost,
+		"smtp_port":                  c.testSMTPPort,
+		"encryption_mode":            "none",
+		"smtp_username":              "",
+		"smtp_password":              "",
+		"from_name":                  "SecureShare Integration Tests",
+		"from_email":                 "secureshare-tests@example.local",
+		"reply_to_email":             "support@example.local",
+		"connection_timeout_seconds": 5,
+		"send_timeout_seconds":       10,
+		"default_subject":            "SecureShare default integration message",
+		"default_message":            "Hello {{recipient_name}},\n\nUse {{secure_link}} to open the integration test secret.\n\nRegards,\n{{sender_name}}",
+		"footer_text":                "Development-only captured email",
+	}, map[string]string{
+		"Authorization": "Bearer " + c.adminKey,
+	})
+	if status != 200 {
+		t.Fatalf("configure SMTP = %d %#v, want 200", status, body)
+	}
+}
+
+func (c *integration) clearMailpit(t *testing.T) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, c.mailpitURL+"/api/v1/messages", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		t.Fatalf("clear Mailpit failed: %v", err)
+	}
+	_ = resp.Body.Close()
+}
+
+func (c *integration) assertMailpitMessage(t *testing.T, subject, expected string, forbidden []string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		rawListing, messages, err := c.mailpitMessages()
+		if err != nil {
+			last = err.Error()
+			time.Sleep(time.Second)
+			continue
+		}
+		for _, message := range messages {
+			if !strings.Contains(message.Subject, subject) {
+				continue
+			}
+			combined := rawListing
+			if message.ID != "" {
+				if detail, err := c.mailpitGet("/api/v1/message/" + url.PathEscape(message.ID)); err == nil {
+					combined += "\n" + detail
+				}
+				if raw, err := c.mailpitGet("/api/v1/message/" + url.PathEscape(message.ID) + "/raw"); err == nil {
+					combined += "\n" + raw
+				}
+			}
+			if !strings.Contains(combined, expected) {
+				t.Fatalf("captured email missing %q", expected)
+			}
+			if !strings.Contains(combined, "integration-recipient@example.local") {
+				t.Fatal("captured email missing recipient")
+			}
+			if !strings.Contains(combined, c.baseURL+"/s#") {
+				t.Fatal("captured email missing fragment secure link")
+			}
+			lower := strings.ToLower(combined)
+			if !strings.Contains(lower, "text/plain") && !strings.Contains(lower, `"text"`) {
+				t.Fatal("captured email missing plain-text body")
+			}
+			if !strings.Contains(lower, "text/html") && !strings.Contains(lower, `"html"`) {
+				t.Fatal("captured email missing HTML body")
+			}
+			for _, value := range forbidden {
+				if value != "" && strings.Contains(combined, value) {
+					t.Fatalf("captured email leaked forbidden value %q", value)
+				}
+			}
+			return
+		}
+		last = rawListing
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("Mailpit did not capture subject %q: %s", subject, last)
+}
+
+type mailpitMessage struct {
+	ID      string
+	Subject string
+}
+
+func (c *integration) mailpitMessages() (string, []mailpitMessage, error) {
+	raw, err := c.mailpitGet("/api/v1/messages")
+	if err != nil {
+		return "", nil, err
+	}
+	var listing struct {
+		Messages []mailpitMessage `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(raw), &listing); err != nil {
+		return raw, nil, err
+	}
+	return raw, listing.Messages, nil
+}
+
+func (c *integration) mailpitGet(path string) (string, error) {
+	resp, err := c.http.Get(c.mailpitURL + path)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return string(raw), fmt.Errorf("mailpit %s returned %d", path, resp.StatusCode)
+	}
+	return string(raw), nil
+}
+
 func getenv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
 	return fallback
+}
+
+func getenvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	var parsed int
+	if _, err := fmt.Sscanf(value, "%d", &parsed); err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func TestPayloadTooLargeIntegration(t *testing.T) {
