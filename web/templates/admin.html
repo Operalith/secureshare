@@ -40,18 +40,18 @@
           <span class="env-pill">{{ .Env }}</span>
           <span class="user-pill">{{ .ActorID }}</span>
           <button type="button" class="ghost compact" data-theme-toggle>Theme</button>
-          <form method="post" action="/api/v1/auth/logout">
+          <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
             <button type="submit" class="ghost compact">Logout</button>
           </form>
         </div>
       </header>
       <main class="content-grid">
-        <section class="hero-panel">
+        <section class="hero-panel operational-header">
           <div>
             <p class="eyebrow">Secure one-time delivery</p>
-            <h2>Send sensitive values without creating permanent copies.</h2>
-            <p>Links use fragment tokens, Vault Transit encryption, and an atomic one-time reveal path.</p>
+            <h2>Dashboard</h2>
+            <p>Monitor link lifecycle, dependency health, and the latest safe audit activity.</p>
           </div>
           <a class="button-link" href="/admin/secrets/new">Create secret</a>
         </section>
@@ -75,8 +75,12 @@
               <a href="/admin/status">View details</a>
             </div>
             <div class="status-list">
-              <div><span>PostgreSQL</span><strong class="badge {{ statusClass .Stats.Dependencies.Postgres }}">{{ .Stats.Dependencies.Postgres }}</strong></div>
-              <div><span>Vault Transit</span><strong class="badge {{ statusClass .Stats.Dependencies.Vault }}">{{ .Stats.Dependencies.Vault }}</strong></div>
+              <div><span>PostgreSQL</span><strong class="badge {{ statusClass .Stats.Dependencies.Postgres }}">{{ .Stats.Dependencies.Postgres }} · {{ .Stats.Dependencies.PostgresLatencyMS }}ms</strong></div>
+              <div><span>Vault Transit</span><strong class="badge {{ statusClass .Stats.Dependencies.Vault }}">{{ .Stats.Dependencies.Vault }} · {{ .Stats.Dependencies.VaultLatencyMS }}ms</strong></div>
+              <div><span>Cleanup worker</span><strong class="badge neutral">{{ .Stats.Dependencies.CleanupWorker }}</strong></div>
+              <div><span>Cleanup interval</span><strong class="technical-value">{{ .Stats.Dependencies.CleanupInterval }}</strong></div>
+              <div><span>Last cleanup</span><strong>{{ .Stats.Dependencies.LastCleanup }}</strong></div>
+              <div><span>Version</span><strong class="technical-value">{{ .Stats.Dependencies.AppVersion }}</strong></div>
             </div>
           </article>
           <article class="panel">

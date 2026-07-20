@@ -139,6 +139,114 @@ func TestSecurityHeadersStillApplyToUIPages(t *testing.T) {
 	}
 }
 
+func TestBrowserLogoutRedirectsClearsCookieAndRevokesSession(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader("csrf_token="+csrf))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("browser logout status = %d, want 303: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != "/login" {
+		t.Fatalf("browser logout location = %q, want /login", got)
+	}
+	deleted := false
+	for _, out := range rec.Result().Cookies() {
+		if out.Name == auth.CookieName && out.MaxAge < 0 {
+			deleted = true
+		}
+	}
+	if !deleted {
+		t.Fatal("browser logout did not delete the session cookie")
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	adminReq.AddCookie(cookie)
+	adminRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusFound || adminRec.Header().Get("Location") != "/login" {
+		t.Fatalf("revoked session admin access = %d location=%q", adminRec.Code, adminRec.Header().Get("Location"))
+	}
+}
+
+func TestBrowserLogoutRequiresPOSTAndCSRF(t *testing.T) {
+	app := testServer()
+	cookie := loginCookie(t, app)
+	for _, path := range []string{"/logout", "/api/v1/auth/logout"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("GET %s = %d, want 405", path, rec.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("browser logout without CSRF = %d, want 403", rec.Code)
+	}
+}
+
+func TestAuthenticationPageRedirects(t *testing.T) {
+	app := testServer()
+	unauth := httptest.NewRecorder()
+	app.Handler().ServeHTTP(unauth, httptest.NewRequest(http.MethodGet, "/admin", nil))
+	if unauth.Code != http.StatusFound || unauth.Header().Get("Location") != "/login" {
+		t.Fatalf("unauthenticated admin = %d location=%q", unauth.Code, unauth.Header().Get("Location"))
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	req.AddCookie(loginCookie(t, app))
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin" {
+		t.Fatalf("authenticated login page = %d location=%q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestDisabledAndExpiredSessionsLosePageAccess(t *testing.T) {
+	app := testServerWithConfig(func(cfg *config.Config) {
+		cfg.SessionTTL = 15 * time.Millisecond
+		cfg.SessionIdleTimeout = 10 * time.Millisecond
+	})
+	cookie, _ := loginSession(t, app, "admin", "change-me-now")
+	user, err := app.users.UserForLogin(context.Background(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.users.SetUserStatus(context.Background(), user.ID, auth.StatusDisabled); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login" {
+		t.Fatalf("disabled user page access = %d location=%q", rec.Code, rec.Header().Get("Location"))
+	}
+
+	if _, err := app.users.SetUserStatus(context.Background(), user.ID, auth.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	expiringCookie, _ := loginSession(t, app, "admin", "change-me-now")
+	time.Sleep(25 * time.Millisecond)
+	expiredReq := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	expiredReq.AddCookie(expiringCookie)
+	expiredRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(expiredRec, expiredReq)
+	if expiredRec.Code != http.StatusFound || expiredRec.Header().Get("Location") != "/login" {
+		t.Fatalf("expired user page access = %d location=%q", expiredRec.Code, expiredRec.Header().Get("Location"))
+	}
+}
+
 func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 	cssBytes, err := os.ReadFile("../../web/static/styles.css")
 	if err != nil {
@@ -146,8 +254,9 @@ func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 	}
 	css := string(cssBytes)
 	for _, want := range []string{
-		`--font-sans: "Inter", "Vazirmatn"`,
-		`--font-mono: "JetBrains Mono"`,
+		`--font-sans: -apple-system`,
+		`--font-persian:`,
+		`--font-mono: ui-monospace`,
 		"direction: ltr",
 		"unicode-bidi: isolate",
 		"[dir=\"rtl\"]",
@@ -164,6 +273,14 @@ func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 	}
 	if _, err := os.Stat("../../web/static/fonts/README.md"); err != nil {
 		t.Fatalf("local fonts directory documentation missing: %v", err)
+	}
+	app := testServer()
+	for _, path := range []string{"/static/styles.css", "/static/admin.js", "/static/reveal.js"} {
+		rec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200", path, rec.Code)
+		}
 	}
 	for _, path := range []string{"../../web/templates/new_secret.html", "../../web/templates/secret_detail.html", "../../web/templates/account.html", "../../web/static/reveal.js"} {
 		raw, err := os.ReadFile(path)
@@ -376,6 +493,7 @@ func testServer() *Server {
 func testServerWithConfig(configure func(*config.Config)) *Server {
 	cfg := config.Config{
 		AppEnv:                   "development",
+		AppVersion:               "test",
 		AppBaseURL:               "http://localhost:8080",
 		AdminAPIKey:              "change-me",
 		LegacyAdminAPIKeyEnabled: true,

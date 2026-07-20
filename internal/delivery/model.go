@@ -111,8 +111,14 @@ type DashboardStats struct {
 }
 
 type DependencyState struct {
-	Postgres string `json:"postgres"`
-	Vault    string `json:"vault"`
+	Postgres          string `json:"postgres"`
+	PostgresLatencyMS int64  `json:"postgres_latency_ms"`
+	Vault             string `json:"vault"`
+	VaultLatencyMS    int64  `json:"vault_latency_ms"`
+	CleanupWorker     string `json:"cleanup_worker"`
+	CleanupInterval   string `json:"cleanup_interval"`
+	LastCleanup       string `json:"last_cleanup"`
+	AppVersion        string `json:"app_version"`
 }
 
 type ActivityEvent struct {

@@ -35,7 +35,7 @@
           <span class="env-pill">{{ .Env }}</span>
           <span class="user-pill">{{ .Role }}</span>
           <a class="button-link secondary-link compact" href="/openapi.yaml">OpenAPI YAML</a>
-          {{ if ne .Role "public" }}<form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form>{{ end }}
+          {{ if ne .Role "public" }}<form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form>{{ end }}
         </div>
       </header>
       <main class="content-grid docs-grid">

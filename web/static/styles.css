@@ -20,9 +20,14 @@
   --neutral-soft: #e8eef3;
   --shadow: 0 24px 60px rgba(18, 24, 23, 0.08);
   --radius: 8px;
-  --sidebar-width: 270px;
-  --font-sans: "Inter", "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sidebar-width: 252px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-persian: Tahoma, "Segoe UI", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --weight-regular: 400;
+  --weight-medium: 620;
+  --weight-semibold: 720;
+  --weight-bold: 820;
   --font-size-xs: 0.78rem;
   --font-size-sm: 0.88rem;
   --font-size-md: 1rem;
@@ -100,15 +105,14 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
   line-height: var(--line-normal);
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-soft) 55%, transparent), transparent 34rem),
-    var(--bg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 48%, transparent), transparent 360px), var(--bg);
   color: var(--text);
   letter-spacing: 0;
 }
 
 :lang(fa),
 [dir="rtl"] {
+  font-family: var(--font-persian);
   line-height: var(--line-loose);
 }
 
@@ -296,21 +300,18 @@ p {
 
 .auth-body,
 .recipient-body {
-  background:
-    linear-gradient(135deg, rgba(11, 127, 114, 0.16), transparent 38%),
-    radial-gradient(circle at 85% 20%, rgba(47, 128, 237, 0.12), transparent 24rem),
-    var(--bg);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 58%, transparent), transparent 54%), var(--bg);
 }
 
 .auth-page {
-  width: min(1120px, calc(100% - 32px));
+  width: min(1260px, calc(100% - 40px));
   min-height: 100vh;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
-  gap: 48px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(420px, 480px);
+  gap: clamp(38px, 6vw, 76px);
   align-items: center;
-  padding: 42px 0;
+  padding: clamp(32px, 6vh, 72px) 0;
 }
 
 .auth-page.single {
@@ -319,8 +320,8 @@ p {
 }
 
 .auth-brand h1 {
-  font-size: clamp(2.8rem, 7.6vw, 6rem);
-  line-height: 0.98;
+  font-size: clamp(3rem, 6vw, 5.4rem);
+  line-height: 1;
 }
 
 .auth-brand p {
@@ -341,7 +342,8 @@ p {
 }
 
 .auth-card {
-  padding: 28px;
+  width: 100%;
+  padding: clamp(26px, 3vw, 34px);
 }
 
 .security-note,
@@ -465,7 +467,7 @@ p {
 .content-grid {
   display: grid;
   gap: 22px;
-  width: min(1240px, calc(100% - 40px));
+  width: min(1520px, calc(100% - 48px));
   margin: 26px auto 48px;
 }
 
@@ -476,12 +478,11 @@ p {
 }
 
 .hero-panel {
-  min-height: 240px;
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: clamp(28px, 5vw, 54px);
+  padding: clamp(20px, 3vw, 30px);
   border-radius: var(--radius);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 82%, transparent), transparent 70%),
@@ -492,8 +493,14 @@ p {
 
 .hero-panel h2 {
   max-width: 760px;
-  font-size: clamp(1.9rem, 4.6vw, 3.8rem);
-  line-height: 1.04;
+  font-size: clamp(1.55rem, 2.4vw, 2.4rem);
+  line-height: 1.12;
+}
+
+.operational-header p:last-child {
+  max-width: 760px;
+  margin-bottom: 0;
+  color: var(--muted);
 }
 
 .metric-grid {
@@ -639,6 +646,7 @@ label {
 input,
 textarea,
 select {
+  min-height: 44px;
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: 7px;

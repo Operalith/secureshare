@@ -28,7 +28,7 @@
       <header class="app-header">
         <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
         <div><p class="eyebrow">Developer access</p><h1>API Clients</h1></div>
-        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><span class="user-pill">{{ .ActorID }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
       </header>
       <main class="content-grid">
         <section class="panel">

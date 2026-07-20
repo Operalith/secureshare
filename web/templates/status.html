@@ -28,7 +28,7 @@
       <header class="app-header">
         <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
         <div><p class="eyebrow">Readiness</p><h1>System status</h1></div>
-        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form></div>
       </header>
       <main class="content-grid">
         <section class="split-grid">
@@ -36,12 +36,22 @@
             <p class="eyebrow">PostgreSQL</p>
             <h2><span class="badge {{ statusClass .Stats.Dependencies.Postgres }}">{{ .Stats.Dependencies.Postgres }}</span></h2>
             <p>Stores delivery metadata, token HMAC values, status transitions, and Vault ciphertext.</p>
+            <p class="technical-value">{{ .Stats.Dependencies.PostgresLatencyMS }}ms readiness latency</p>
           </article>
           <article class="panel status-card">
             <p class="eyebrow">Vault Transit</p>
             <h2><span class="badge {{ statusClass .Stats.Dependencies.Vault }}">{{ .Stats.Dependencies.Vault }}</span></h2>
             <p>Encrypts payloads before storage and decrypts only during the leased reveal operation.</p>
+            <p class="technical-value">{{ .Stats.Dependencies.VaultLatencyMS }}ms readiness latency</p>
           </article>
+        </section>
+        <section class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Background work</p><h2>Cleanup worker</h2></div><span class="badge neutral">{{ .Stats.Dependencies.CleanupWorker }}</span></div>
+          <div class="status-list">
+            <div><span>Interval</span><strong class="technical-value">{{ .Stats.Dependencies.CleanupInterval }}</strong></div>
+            <div><span>Last cleanup</span><strong>{{ .Stats.Dependencies.LastCleanup }}</strong></div>
+            <div><span>Application version</span><strong class="technical-value">{{ .Stats.Dependencies.AppVersion }}</strong></div>
+          </div>
         </section>
         <section class="panel">
           <div class="section-heading"><div><p class="eyebrow">Operational summary</p><h2>Delivery lifecycle</h2></div></div>

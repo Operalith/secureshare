@@ -16,6 +16,7 @@ const (
 
 type Config struct {
 	AppEnv                   string
+	AppVersion               string
 	AppAddr                  string
 	AppBaseURL               string
 	DatabaseURL              string
@@ -54,6 +55,7 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		AppEnv:                   getenv("APP_ENV", "development"),
+		AppVersion:               getenv("APP_VERSION", "dev"),
 		AppAddr:                  getenv("APP_ADDR", ":8080"),
 		AppBaseURL:               strings.TrimRight(getenv("APP_BASE_URL", "http://localhost:8080"), "/"),
 		DatabaseURL:              getenv("DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),

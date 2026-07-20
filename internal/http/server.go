@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -101,6 +102,14 @@ func templatePattern() string {
 	return filepath.Join("..", "..", "web", "templates", "*.html")
 }
 
+func staticDir() string {
+	path := filepath.Join("web", "static")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return filepath.Join("..", "..", "web", "static")
+}
+
 func openAPIPath() string {
 	path := filepath.Join("docs", "openapi.yaml")
 	if matches, _ := filepath.Glob(path); len(matches) > 0 {
@@ -111,11 +120,12 @@ func openAPIPath() string {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir()))))
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/docs", s.handleDocsPage)
 	mux.HandleFunc("/openapi.yaml", s.handleOpenAPISpec)
 	mux.HandleFunc("/login", s.handleLoginPage)
+	mux.HandleFunc("/logout", s.handleBrowserLogout)
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/secrets", s.handleSecretListPage)
 	mux.HandleFunc("/admin/secrets/new", s.handleNewSecretPage)
@@ -170,6 +180,10 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := s.auth.FromRequest(r); ok {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
 	s.render(w, "login.html", map[string]any{"Title": "Login", "Env": s.cfg.AppEnv})
@@ -548,6 +562,32 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 	s.auth.Destroy(w, r)
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleBrowserLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	session, ok := s.auth.FromRequest(r)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !s.validCSRF(r, session) {
+		s.recordCSRFFailure()
+		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+		return
+	}
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   session.Username,
+		Type:      "auth.logout",
+		Result:    "success",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
+	s.auth.Destroy(w, r)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -1389,17 +1429,28 @@ func (s *Server) adminData(r *http.Request, values map[string]any) map[string]an
 }
 
 func (s *Server) dependencyState(ctx context.Context) delivery.DependencyState {
-	state := delivery.DependencyState{Postgres: "unavailable", Vault: "unavailable"}
+	state := delivery.DependencyState{
+		Postgres:        "unavailable",
+		Vault:           "unavailable",
+		CleanupWorker:   "scheduled",
+		CleanupInterval: s.cfg.CleanupInterval.String(),
+		LastCleanup:     "not recorded",
+		AppVersion:      s.cfg.AppVersion,
+	}
 	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
+	dbStart := time.Now()
 	if s.db != nil && s.db.Ping(pingCtx) == nil {
 		state.Postgres = "healthy"
 	}
+	state.PostgresLatencyMS = time.Since(dbStart).Milliseconds()
 	vaultCtx, vaultCancel := context.WithTimeout(ctx, 2*time.Second)
 	defer vaultCancel()
+	vaultStart := time.Now()
 	if s.vault != nil && s.vault.Ready(vaultCtx) == nil {
 		state.Vault = "healthy"
 	}
+	state.VaultLatencyMS = time.Since(vaultStart).Milliseconds()
 	return state
 }
 
