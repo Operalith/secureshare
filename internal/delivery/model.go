@@ -49,6 +49,59 @@ type Metadata struct {
 	MaxFailedAttempts  int        `json:"max_failed_attempts"`
 }
 
+type ListOptions struct {
+	Page        int
+	PageSize    int
+	Status      string
+	Search      string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+	ExpiresFrom *time.Time
+	ExpiresTo   *time.Time
+	Sort        string
+	Order       string
+}
+
+type Pagination struct {
+	Page       int `json:"page"`
+	PageSize   int `json:"page_size"`
+	TotalItems int `json:"total_items"`
+	TotalPages int `json:"total_pages"`
+}
+
+type ListResult struct {
+	Items      []Metadata `json:"items"`
+	Pagination Pagination `json:"pagination"`
+}
+
+type DashboardStats struct {
+	ActiveCount    int             `json:"active_count"`
+	ConsumedCount  int             `json:"consumed_count"`
+	ExpiredCount   int             `json:"expired_count"`
+	RevokedCount   int             `json:"revoked_count"`
+	CreatedToday   int             `json:"created_today"`
+	ConsumedToday  int             `json:"consumed_today"`
+	RecentActivity []ActivityEvent `json:"recent_activity"`
+	Dependencies   DependencyState `json:"dependencies"`
+}
+
+type DependencyState struct {
+	Postgres string `json:"postgres"`
+	Vault    string `json:"vault"`
+}
+
+type ActivityEvent struct {
+	Type               string     `json:"type"`
+	DeliveryID         uuid.UUID  `json:"delivery_id"`
+	Title              string     `json:"title,omitempty"`
+	RecipientReference string     `json:"recipient_reference,omitempty"`
+	Status             string     `json:"status"`
+	ActorID            string     `json:"actor_id,omitempty"`
+	OccurredAt         time.Time  `json:"occurred_at"`
+	ConsumedAt         *time.Time `json:"consumed_at,omitempty"`
+	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
+}
+
 type InsertParams struct {
 	ID                 uuid.UUID
 	TokenHash          []byte
@@ -72,8 +125,9 @@ type ConsumeCandidate struct {
 }
 
 type PrepareResponse struct {
-	MayAttempt       bool `json:"may_attempt"`
-	PasswordRequired bool `json:"password_required"`
+	MayAttempt       bool       `json:"may_attempt"`
+	PasswordRequired bool       `json:"password_required"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 }
 
 type ConsumeResponse struct {

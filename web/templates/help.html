@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Help - SecureShare</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation">
+        <a href="/admin">Dashboard</a>
+        <a href="/admin/secrets/new">Create Secret</a>
+        <a href="/admin/secrets">Secret Links</a>
+        <a href="/admin/status">System Status</a>
+        <a class="active" href="/admin/help">Help</a>
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Documentation</p><h1>Help</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="panel help-grid">
+          <article>
+            <h2>Creating links</h2>
+            <p>Use structured fields for credentials and plain text mode for JSON, configuration snippets, or multi-line values.</p>
+          </article>
+          <article>
+            <h2>Sharing safely</h2>
+            <p>Share the generated URL only through approved internal channels. The raw token is not stored and cannot be recovered later.</p>
+          </article>
+          <article>
+            <h2>Recipient reveal</h2>
+            <p>Opening the link does not consume the secret. The secret is consumed only after the recipient selects Reveal Secret.</p>
+          </article>
+          <article>
+            <h2>Operations</h2>
+            <p>Use the status page, health endpoints, metrics, and documentation files for operational checks and production hardening.</p>
+          </article>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

@@ -7,28 +7,42 @@
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/reveal.js" defer></script>
 </head>
-<body>
-  <main class="recipient-shell">
-    <section class="panel reveal-panel">
+<body class="recipient-body">
+  <main class="recipient-page">
+    <section class="recipient-card">
+      <div class="logo-mark large" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img" aria-label="SecureShare logo"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg>
+      </div>
+      <p class="eyebrow">SecureShare</p>
       <h1>A secure secret has been shared with you.</h1>
-      <p class="muted">This secret can only be viewed once.</p>
-      <div id="prepare-state" class="status-line" role="status">Preparing secure link...</div>
+      <p class="muted">This secret can only be viewed once. Choose a private setting before revealing it.</p>
+      <div id="prepare-state" class="recipient-state skeleton-line" role="status">Preparing secure link...</div>
+      <p id="expires-state" class="muted"></p>
       <label id="password-wrap" class="hidden">
         Link password
-        <input type="password" id="link-password" autocomplete="current-password">
+        <span class="input-with-action">
+          <input type="password" id="link-password" autocomplete="current-password" data-secret-input>
+          <button type="button" class="ghost compact" data-toggle-secret aria-label="Show link password">Show</button>
+        </span>
       </label>
-      <div class="actions">
-        <button type="button" id="reveal-button" disabled>Reveal Secret</button>
-      </div>
+      <button type="button" id="reveal-button" disabled data-loading-text="Revealing...">Reveal Secret</button>
       <section id="revealed-secret-wrap" class="revealed hidden" aria-live="polite">
-        <h2>Secret revealed</h2>
-        <pre><code id="revealed-secret"></code></pre>
-        <div class="actions">
-          <button type="button" id="copy-secret">Copy secret</button>
+        <div class="success-banner">
+          <span class="success-icon" aria-hidden="true">✓</span>
+          <div><h2>Secret revealed</h2><p>This page cannot retrieve the secret again after refresh or navigation.</p></div>
         </div>
-        <p class="warning">This page cannot retrieve the secret again after refresh or navigation.</p>
+        <div id="structured-secret" class="revealed-fields hidden"></div>
+        <pre id="plain-secret-wrap" class="hidden"><code id="revealed-secret"></code></pre>
+        <div class="actions">
+          <button type="button" id="copy-secret">Copy all</button>
+        </div>
+      </section>
+      <section id="unavailable-wrap" class="unavailable hidden" aria-live="polite">
+        <h2>Secret unavailable</h2>
+        <p>This secret has expired, was revoked, or has already been viewed.</p>
       </section>
     </section>
   </main>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

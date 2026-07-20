@@ -6,9 +6,10 @@
   <title>{{ .Title }} - SecureShare</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-  <main class="auth-shell">
-    <section class="panel auth-panel">
+<body class="auth-body">
+  <main class="auth-page single">
+    <section class="auth-card">
+      <div class="logo-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></div>
       <h1>{{ .Title }}</h1>
       <p class="muted">{{ .Message }}</p>
       <a class="button-link" href="/admin">Return to admin</a>

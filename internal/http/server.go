@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,8 +52,23 @@ type Server struct {
 func New(deps Dependencies) *Server {
 	funcs := template.FuncMap{
 		"formatTime": func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
+		"formatOptionalTime": func(t *time.Time) string {
+			if t == nil {
+				return "Not recorded"
+			}
+			return t.UTC().Format(time.RFC3339)
+		},
+		"statusClass": statusClass,
+		"eventLabel":  eventLabel,
+		"shortID": func(id uuid.UUID) string {
+			value := id.String()
+			if len(value) <= 8 {
+				return value
+			}
+			return value[:8]
+		},
 	}
-	templates := template.Must(template.New("").Funcs(funcs).ParseGlob(filepath.Join("web", "templates", "*.html")))
+	templates := template.Must(template.New("").Funcs(funcs).ParseGlob(templatePattern()))
 	return &Server{
 		cfg:       deps.Config,
 		logger:    deps.Logger,
@@ -66,14 +82,25 @@ func New(deps Dependencies) *Server {
 	}
 }
 
+func templatePattern() string {
+	pattern := filepath.Join("web", "templates", "*.html")
+	if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
+		return pattern
+	}
+	return filepath.Join("..", "..", "web", "templates", "*.html")
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/login", s.handleLoginPage)
 	mux.HandleFunc("/admin", s.handleAdmin)
+	mux.HandleFunc("/admin/secrets", s.handleSecretListPage)
 	mux.HandleFunc("/admin/secrets/new", s.handleNewSecretPage)
 	mux.HandleFunc("/admin/secrets/", s.handleSecretPage)
+	mux.HandleFunc("/admin/status", s.handleStatusPage)
+	mux.HandleFunc("/admin/help", s.handleHelpPage)
 	mux.HandleFunc("/s", s.handleRecipientPage)
 	mux.HandleFunc("/error", s.handleErrorPage)
 	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
@@ -107,21 +134,57 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 		return
 	}
-	s.render(w, "login.html", map[string]any{"Title": "Login"})
+	s.render(w, "login.html", map[string]any{"Title": "Login", "Env": s.cfg.AppEnv})
 }
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin" {
+		http.NotFound(w, r)
+		return
+	}
 	if !s.requirePage(w, r, "secret:create") {
 		return
 	}
-	s.render(w, "admin.html", map[string]any{"Title": "SecureShare Admin"})
+	stats, err := s.delivery.Dashboard(r.Context())
+	if err != nil {
+		s.logger.Warn("dashboard query failed", "error", err)
+	}
+	stats.Dependencies = s.dependencyState(r.Context())
+	s.render(w, "admin.html", s.adminData(r, map[string]any{
+		"Title": "Dashboard",
+		"Stats": stats,
+	}))
 }
 
 func (s *Server) handleNewSecretPage(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePage(w, r, "secret:create") {
 		return
 	}
-	s.render(w, "new_secret.html", map[string]any{"Title": "Create Secret", "MaxTTLHours": int(s.cfg.MaxSecretTTL.Hours())})
+	s.render(w, "new_secret.html", s.adminData(r, map[string]any{"Title": "Create Secret", "MaxTTLHours": int(s.cfg.MaxSecretTTL.Hours())}))
+}
+
+func (s *Server) handleSecretListPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/secrets" {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requirePage(w, r, "secret:read-metadata") {
+		return
+	}
+	opts := parseListOptions(r)
+	result, err := s.delivery.List(r.Context(), opts)
+	if err != nil {
+		s.logger.Warn("secret list query failed", "error", err)
+	}
+	s.render(w, "secret_list.html", s.adminData(r, map[string]any{
+		"Title":       "Secret Links",
+		"Result":      result,
+		"Filters":     opts,
+		"PrevURL":     pageURL(r, result.Pagination.Page-1),
+		"NextURL":     pageURL(r, result.Pagination.Page+1),
+		"CanPrevious": result.Pagination.Page > 1,
+		"CanNext":     result.Pagination.TotalPages > 0 && result.Pagination.Page < result.Pagination.TotalPages,
+	}))
 }
 
 func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +202,36 @@ func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "Secret metadata is unavailable."})
 		return
 	}
-	s.render(w, "secret_detail.html", map[string]any{"Title": "Secret Metadata", "Secret": meta})
+	events, err := s.delivery.RecentActivity(r.Context(), 20)
+	if err != nil {
+		s.logger.Warn("timeline query failed", "delivery_id", id, "error", err)
+	}
+	timeline := []delivery.ActivityEvent{}
+	for _, event := range events {
+		if event.DeliveryID == id {
+			timeline = append(timeline, event)
+		}
+	}
+	s.render(w, "secret_detail.html", s.adminData(r, map[string]any{"Title": "Secret Metadata", "Secret": meta, "Timeline": timeline}))
+}
+
+func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePage(w, r, "secret:read-metadata") {
+		return
+	}
+	stats, err := s.delivery.Dashboard(r.Context())
+	if err != nil {
+		s.logger.Warn("status dashboard query failed", "error", err)
+	}
+	stats.Dependencies = s.dependencyState(r.Context())
+	s.render(w, "status.html", s.adminData(r, map[string]any{"Title": "System Status", "Stats": stats}))
+}
+
+func (s *Server) handleHelpPage(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePage(w, r, "secret:read-metadata") {
+		return
+	}
+	s.render(w, "help.html", s.adminData(r, map[string]any{"Title": "Help"}))
 }
 
 func (s *Server) handleRecipientPage(w http.ResponseWriter, r *http.Request) {
@@ -426,6 +518,111 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		s.logger.Error("template render failed", "template", name, "error", err)
+	}
+}
+
+func (s *Server) adminData(r *http.Request, values map[string]any) map[string]any {
+	values["Env"] = s.cfg.AppEnv
+	values["CurrentPath"] = r.URL.Path
+	values["ActorID"] = "admin"
+	return values
+}
+
+func (s *Server) dependencyState(ctx context.Context) delivery.DependencyState {
+	state := delivery.DependencyState{Postgres: "unavailable", Vault: "unavailable"}
+	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if s.db != nil && s.db.Ping(pingCtx) == nil {
+		state.Postgres = "healthy"
+	}
+	vaultCtx, vaultCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer vaultCancel()
+	if s.vault != nil && s.vault.Ready(vaultCtx) == nil {
+		state.Vault = "healthy"
+	}
+	return state
+}
+
+func parseListOptions(r *http.Request) delivery.ListOptions {
+	query := r.URL.Query()
+	return delivery.ListOptions{
+		Page:        parsePositiveInt(query.Get("page"), 1),
+		PageSize:    parsePositiveInt(query.Get("page_size"), 25),
+		Status:      query.Get("status"),
+		Search:      query.Get("search"),
+		CreatedFrom: parseDate(query.Get("created_from")),
+		CreatedTo:   parseDate(query.Get("created_to")),
+		ExpiresFrom: parseDate(query.Get("expires_from")),
+		ExpiresTo:   parseDate(query.Get("expires_to")),
+		Sort:        query.Get("sort"),
+		Order:       query.Get("order"),
+	}
+}
+
+func parsePositiveInt(value string, fallback int) int {
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func parseDate(value string) *time.Time {
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+func pageURL(r *http.Request, page int) string {
+	if page < 1 {
+		page = 1
+	}
+	query := r.URL.Query()
+	query.Set("page", strconv.Itoa(page))
+	return r.URL.Path + "?" + query.Encode()
+}
+
+func statusClass(status string) string {
+	switch status {
+	case "healthy":
+		return "healthy"
+	case "unavailable":
+		return "unavailable"
+	case delivery.StatusActive, delivery.StatusConsuming:
+		return "success"
+	case delivery.StatusConsumed:
+		return "neutral"
+	case delivery.StatusExpired:
+		return "warning"
+	case delivery.StatusRevoked:
+		return "danger"
+	default:
+		return "neutral"
+	}
+}
+
+func eventLabel(eventType string) string {
+	switch eventType {
+	case "secret.created":
+		return "Secret created"
+	case "secret.consumed":
+		return "Secret consumed"
+	case "secret.revoked":
+		return "Secret revoked"
+	case "secret.expired":
+		return "Secret expired"
+	case "secret.password_failed":
+		return "Password attempt failed"
+	default:
+		return eventType
 	}
 }
 

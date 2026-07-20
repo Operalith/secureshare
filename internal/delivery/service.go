@@ -26,6 +26,9 @@ type Vault interface {
 type Store interface {
 	Insert(context.Context, InsertParams) error
 	Metadata(context.Context, uuid.UUID) (Metadata, error)
+	List(context.Context, ListOptions) (ListResult, error)
+	Dashboard(context.Context) (DashboardStats, error)
+	RecentActivity(context.Context, int) ([]ActivityEvent, error)
 	Revoke(context.Context, uuid.UUID) (bool, error)
 	Prepare(context.Context, []byte) (PrepareResponse, error)
 	BeginConsume(context.Context, []byte, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error)
@@ -114,6 +117,18 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 
 func (s *Service) Metadata(ctx context.Context, id uuid.UUID) (Metadata, error) {
 	return s.store.Metadata(ctx, id)
+}
+
+func (s *Service) List(ctx context.Context, opts ListOptions) (ListResult, error) {
+	return s.store.List(ctx, opts)
+}
+
+func (s *Service) Dashboard(ctx context.Context) (DashboardStats, error) {
+	return s.store.Dashboard(ctx)
+}
+
+func (s *Service) RecentActivity(ctx context.Context, limit int) ([]ActivityEvent, error) {
+	return s.store.RecentActivity(ctx, limit)
 }
 
 func (s *Service) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {

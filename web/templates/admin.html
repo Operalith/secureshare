@@ -3,28 +3,105 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SecureShare Admin</title>
+  <title>Dashboard - SecureShare</title>
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/admin.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/admin">SecureShare</a>
-    <nav>
-      <a href="/admin/secrets/new">New secret</a>
-      <form method="post" action="/api/v1/auth/logout">
-        <button type="submit" class="secondary">Sign out</button>
-      </form>
-    </nav>
-  </header>
-  <main class="page">
-    <section class="hero-band">
-      <div>
-        <h1>Secure one-time links for sensitive handoffs</h1>
-        <p>Secrets are encrypted with Vault Transit, stored as ciphertext, and revealed only after the recipient explicitly confirms access.</p>
-      </div>
-      <a class="button-link" href="/admin/secrets/new">Create secret</a>
-    </section>
-  </main>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin">
+        <span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span>
+        <span>SecureShare</span>
+      </a>
+      <nav class="sidebar-nav" aria-label="Admin navigation">
+        <a class="active" href="/admin">Dashboard</a>
+        <a href="/admin/secrets/new">Create Secret</a>
+        <a href="/admin/secrets">Secret Links</a>
+        <a href="/admin/status">System Status</a>
+        <a href="/admin/help">Help</a>
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation">
+          <span></span><span></span><span></span>
+        </button>
+        <div>
+          <p class="eyebrow">Operations console</p>
+          <h1>Dashboard</h1>
+        </div>
+        <div class="header-actions">
+          <span class="env-pill">{{ .Env }}</span>
+          <span class="user-pill">{{ .ActorID }}</span>
+          <button type="button" class="ghost compact" data-theme-toggle>Theme</button>
+          <form method="post" action="/api/v1/auth/logout">
+            <button type="submit" class="ghost compact">Logout</button>
+          </form>
+        </div>
+      </header>
+      <main class="content-grid">
+        <section class="hero-panel">
+          <div>
+            <p class="eyebrow">Secure one-time delivery</p>
+            <h2>Send sensitive values without creating permanent copies.</h2>
+            <p>Links use fragment tokens, Vault Transit encryption, and an atomic one-time reveal path.</p>
+          </div>
+          <a class="button-link" href="/admin/secrets/new">Create secret</a>
+        </section>
+
+        <section class="metric-grid" aria-label="Secret delivery metrics">
+          <article class="metric-card"><span>Active links</span><strong>{{ .Stats.ActiveCount }}</strong><small>Available to reveal</small></article>
+          <article class="metric-card"><span>Consumed</span><strong>{{ .Stats.ConsumedCount }}</strong><small>Viewed exactly once</small></article>
+          <article class="metric-card"><span>Expired</span><strong>{{ .Stats.ExpiredCount }}</strong><small>No longer available</small></article>
+          <article class="metric-card"><span>Revoked</span><strong>{{ .Stats.RevokedCount }}</strong><small>Stopped by admin</small></article>
+          <article class="metric-card"><span>Created today</span><strong>{{ .Stats.CreatedToday }}</strong><small>UTC day window</small></article>
+          <article class="metric-card"><span>Consumed today</span><strong>{{ .Stats.ConsumedToday }}</strong><small>Successful reveals</small></article>
+        </section>
+
+        <section class="split-grid">
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Dependencies</p>
+                <h2>System status</h2>
+              </div>
+              <a href="/admin/status">View details</a>
+            </div>
+            <div class="status-list">
+              <div><span>PostgreSQL</span><strong class="badge {{ statusClass .Stats.Dependencies.Postgres }}">{{ .Stats.Dependencies.Postgres }}</strong></div>
+              <div><span>Vault Transit</span><strong class="badge {{ statusClass .Stats.Dependencies.Vault }}">{{ .Stats.Dependencies.Vault }}</strong></div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Recent safe events</p>
+                <h2>Activity</h2>
+              </div>
+              <a href="/admin/secrets">Open list</a>
+            </div>
+            {{ if .Stats.RecentActivity }}
+            <ol class="timeline">
+              {{ range .Stats.RecentActivity }}
+              <li>
+                <span class="timeline-dot {{ statusClass .Status }}"></span>
+                <div>
+                  <strong>{{ eventLabel .Type }}</strong>
+                  <span>{{ if .Title }}{{ .Title }}{{ else }}Untitled secret{{ end }} · {{ shortID .DeliveryID }}</span>
+                  <time>{{ formatTime .OccurredAt }}</time>
+                </div>
+              </li>
+              {{ end }}
+            </ol>
+            {{ else }}
+            <div class="empty-state">No secret activity has been recorded yet.</div>
+            {{ end }}
+          </article>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

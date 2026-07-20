@@ -105,6 +105,15 @@ func (s *fakeStore) Insert(context.Context, InsertParams) error { return nil }
 func (s *fakeStore) Metadata(context.Context, uuid.UUID) (Metadata, error) {
 	return Metadata{}, nil
 }
+func (s *fakeStore) List(context.Context, ListOptions) (ListResult, error) {
+	return ListResult{}, nil
+}
+func (s *fakeStore) Dashboard(context.Context) (DashboardStats, error) {
+	return DashboardStats{}, nil
+}
+func (s *fakeStore) RecentActivity(context.Context, int) ([]ActivityEvent, error) {
+	return nil, nil
+}
 func (s *fakeStore) Revoke(context.Context, uuid.UUID) (bool, error) { return true, nil }
 func (s *fakeStore) Prepare(context.Context, []byte) (PrepareResponse, error) {
 	return PrepareResponse{MayAttempt: true}, nil

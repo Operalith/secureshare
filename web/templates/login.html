@@ -5,19 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SecureShare Login</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
 </head>
-<body>
-  <main class="auth-shell">
-    <section class="panel auth-panel">
+<body class="auth-body">
+  <main class="auth-page">
+    <section class="auth-brand">
+      <div class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img" aria-label="SecureShare logo">
+          <path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path>
+          <path d="M17 24l5 5 10-12"></path>
+        </svg>
+      </div>
+      <p class="eyebrow">Internal Secret Delivery</p>
       <h1>SecureShare</h1>
-      <p class="muted">Internal one-time secret delivery</p>
-      <form method="post" action="/api/v1/auth/login" class="form-stack">
+      <p>One-time encrypted links for credentials, API keys, access tokens, and sensitive operational handoffs.</p>
+      <div class="security-note">
+        <strong>Security model</strong>
+        <span>Vault Transit encryption, fragment-only tokens, no plaintext database storage, one explicit reveal.</span>
+      </div>
+    </section>
+    <section class="auth-card" aria-labelledby="login-title">
+      <div class="env-pill">{{ .Env }}</div>
+      <h2 id="login-title">Admin sign in</h2>
+      <p class="muted">Use your internal admin API key to start a secure session.</p>
+      <form method="post" action="/api/v1/auth/login" class="form-stack" data-login-form>
         <label>
           Admin API key
-          <input type="password" name="api_key" autocomplete="current-password" required>
+          <span class="input-with-action">
+            <input type="password" name="api_key" autocomplete="current-password" required data-secret-input>
+            <button type="button" class="ghost compact" data-toggle-secret aria-label="Show API key">Show</button>
+          </span>
         </label>
-        <button type="submit">Sign in</button>
+        <p class="form-error" role="alert" data-form-error></p>
+        <button type="submit" data-loading-text="Signing in...">Sign in securely</button>
       </form>
+      <p class="fine-print">The API key is submitted only to SecureShare and is not stored by the browser UI.</p>
     </section>
   </main>
 </body>

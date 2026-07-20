@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System Status - SecureShare</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" data-sidebar>
+      <a class="sidebar-brand" href="/admin"><span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span><span>SecureShare</span></a>
+      <nav class="sidebar-nav" aria-label="Admin navigation">
+        <a href="/admin">Dashboard</a>
+        <a href="/admin/secrets/new">Create Secret</a>
+        <a href="/admin/secrets">Secret Links</a>
+        <a class="active" href="/admin/status">System Status</a>
+        <a href="/admin/help">Help</a>
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="app-header">
+        <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div><p class="eyebrow">Readiness</p><h1>System status</h1></div>
+        <div class="header-actions"><span class="env-pill">{{ .Env }}</span><button type="button" class="ghost compact" data-theme-toggle>Theme</button><form method="post" action="/api/v1/auth/logout"><button type="submit" class="ghost compact">Logout</button></form></div>
+      </header>
+      <main class="content-grid">
+        <section class="split-grid">
+          <article class="panel status-card">
+            <p class="eyebrow">PostgreSQL</p>
+            <h2><span class="badge {{ statusClass .Stats.Dependencies.Postgres }}">{{ .Stats.Dependencies.Postgres }}</span></h2>
+            <p>Stores delivery metadata, token HMAC values, status transitions, and Vault ciphertext.</p>
+          </article>
+          <article class="panel status-card">
+            <p class="eyebrow">Vault Transit</p>
+            <h2><span class="badge {{ statusClass .Stats.Dependencies.Vault }}">{{ .Stats.Dependencies.Vault }}</span></h2>
+            <p>Encrypts payloads before storage and decrypts only during the leased reveal operation.</p>
+          </article>
+        </section>
+        <section class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Operational summary</p><h2>Delivery lifecycle</h2></div></div>
+          <div class="metric-grid compact-metrics">
+            <article class="metric-card"><span>Active</span><strong>{{ .Stats.ActiveCount }}</strong></article>
+            <article class="metric-card"><span>Consumed</span><strong>{{ .Stats.ConsumedCount }}</strong></article>
+            <article class="metric-card"><span>Expired</span><strong>{{ .Stats.ExpiredCount }}</strong></article>
+            <article class="metric-card"><span>Revoked</span><strong>{{ .Stats.RevokedCount }}</strong></article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
