@@ -226,9 +226,11 @@ func (s *uiStore) RecentActivity(context.Context, int) ([]delivery.ActivityEvent
 	return stats.RecentActivity, nil
 }
 
-func (s *uiStore) Revoke(context.Context, uuid.UUID) (bool, error) {
-	return true, nil
+func (s *uiStore) Revoke(context.Context, uuid.UUID) (delivery.RevokeResult, error) {
+	return delivery.RevokeResult{ID: testUUID, Status: delivery.StatusRevoked, Revoked: true, Found: true}, nil
 }
+
+func (s *uiStore) RecordAuditEvent(context.Context, delivery.AuditEventRecord) error { return nil }
 
 func (s *uiStore) Prepare(context.Context, []byte) (delivery.PrepareResponse, error) {
 	expires := time.Now().UTC().Add(time.Hour)
@@ -243,6 +245,9 @@ func (s *uiStore) RecordPasswordFailure(context.Context, uuid.UUID, uuid.UUID) e
 func (s *uiStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error        { return nil }
 func (s *uiStore) CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return true, nil
+}
+func (s *uiStore) Cleanup(context.Context, time.Duration, time.Duration, time.Duration, time.Duration, time.Duration) (delivery.CleanupResult, error) {
+	return delivery.CleanupResult{}, nil
 }
 func (s *uiStore) CountActive(context.Context) (float64, error) { return 2, nil }
 

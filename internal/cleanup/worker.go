@@ -35,16 +35,16 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) runOnce(ctx context.Context) {
-	expired, cleared, restored, err := w.repo.Cleanup(ctx, w.cfg.ConsumedRetention, w.cfg.ExpiredRetention, w.cfg.RevokedRetention, w.cfg.ConsumingLeaseTTL)
+	result, err := w.repo.Cleanup(ctx, w.cfg.ConsumedRetention, w.cfg.ExpiredRetention, w.cfg.RevokedRetention, w.cfg.ConsumingLeaseTTL, w.cfg.AuditRetention)
 	if err != nil {
 		w.logger.Warn("cleanup failed", "error", err)
 		return
 	}
-	if expired > 0 {
-		w.metrics.SecretExpired.Add(float64(expired))
+	if result.Expired > 0 {
+		w.metrics.SecretExpired.Add(float64(result.Expired))
 	}
 	if active, err := w.repo.CountActive(ctx); err == nil {
 		w.metrics.ActiveSecrets.Set(active)
 	}
-	w.logger.Debug("cleanup completed", "expired", expired, "payloads_cleared", cleared, "leases_restored", restored)
+	w.logger.Debug("cleanup completed", "expired", result.Expired, "payloads_cleared", result.PayloadsCleared, "leases_restored", result.LeasesRestored, "audit_deleted", result.AuditDeleted)
 }

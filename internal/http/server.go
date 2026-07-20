@@ -105,6 +105,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/error", s.handleErrorPage)
 	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("/api/v1/dashboard", s.handleDashboardAPI)
+	mux.HandleFunc("/api/v1/admin/cleanup", s.handleManualCleanup)
 	mux.HandleFunc("/api/v1/secret-links", s.handleSecretLinks)
 	mux.HandleFunc("/api/v1/secret-links/", s.handleSecretLinkByID)
 	mux.HandleFunc("/api/v1/secret-links/prepare", s.handlePrepare)
@@ -276,6 +278,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.validAdminKey(apiKey) {
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+			ActorID:   "admin",
+			Type:      "auth.login_failed",
+			Result:    "unauthorized",
+			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			RequestID: middleware.RequestID(r.Context()),
+		})
 		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
 		return
 	}
@@ -283,6 +292,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
 		return
 	}
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   "admin",
+		Type:      "auth.login_succeeded",
+		Result:    "success",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
 	if !isJSON {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
@@ -302,6 +318,18 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSecretLinks(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/v1/secret-links" {
 		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodGet {
+		if _, ok := s.requireAPI(w, r, "secret:read-metadata"); !ok {
+			return
+		}
+		result, err := s.delivery.List(r.Context(), parseListOptions(r))
+		if err != nil {
+			s.writeDeliveryError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, result)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -357,22 +385,60 @@ func (s *Server) handleSecretLinkByID(w http.ResponseWriter, r *http.Request) {
 		}
 		s.writeJSON(w, http.StatusOK, meta)
 	case action == "revoke" && r.Method == http.MethodPost:
-		if _, ok := s.requireAPI(w, r, "secret:revoke"); !ok {
+		actor, ok := s.requireAPI(w, r, "secret:revoke")
+		if !ok {
 			return
 		}
-		ok, err := s.delivery.Revoke(r.Context(), id)
+		result, err := s.delivery.Revoke(r.Context(), id, actor.ActorID, middleware.IPHash(s.cfg.RequestIPHashPepper, r), middleware.RequestID(r.Context()))
 		if err != nil {
 			s.writeDeliveryError(w, err)
 			return
 		}
-		if !ok {
-			s.writeError(w, delivery.CodeSecretUnavailable, secretUnavailableMessage(), http.StatusGone)
-			return
-		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": delivery.StatusRevoked})
+		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": result.Status, "revoked": result.Revoked})
 	default:
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleDashboardAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := s.requireAPI(w, r, "secret:read-metadata"); !ok {
+		return
+	}
+	stats, err := s.delivery.Dashboard(r.Context())
+	if err != nil {
+		s.writeDeliveryError(w, err)
+		return
+	}
+	stats.Dependencies = s.dependencyState(r.Context())
+	s.writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *Server) handleManualCleanup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	actor, ok := s.requireAPI(w, r, "secret:revoke")
+	if !ok {
+		return
+	}
+	result, err := s.delivery.Cleanup(r.Context())
+	if err != nil {
+		s.writeDeliveryError(w, err)
+		return
+	}
+	s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+		ActorID:   actor.ActorID,
+		Type:      "secret.expired",
+		Result:    "manual_cleanup",
+		IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+		RequestID: middleware.RequestID(r.Context()),
+	})
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cleanup": result})
 }
 
 func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {

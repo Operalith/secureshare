@@ -20,6 +20,13 @@ type contextKey string
 
 const RequestIDKey contextKey = "request_id"
 
+func RequestID(ctx context.Context) string {
+	if value, ok := ctx.Value(RequestIDKey).(string); ok {
+		return value
+	}
+	return ""
+}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	status int

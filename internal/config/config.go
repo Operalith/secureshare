@@ -34,6 +34,7 @@ type Config struct {
 	ConsumedRetention   time.Duration
 	ExpiredRetention    time.Duration
 	RevokedRetention    time.Duration
+	AuditRetention      time.Duration
 	LogLevel            string
 	MetricsEnabled      bool
 	MigrationsDir       string
@@ -81,6 +82,9 @@ func Load() (Config, error) {
 		return cfg, err
 	}
 	if cfg.RevokedRetention, err = getenvDuration("REVOKED_PAYLOAD_RETENTION", 24*time.Hour); err != nil {
+		return cfg, err
+	}
+	if cfg.AuditRetention, err = getenvDuration("AUDIT_EVENT_RETENTION", 90*24*time.Hour); err != nil {
 		return cfg, err
 	}
 	if cfg.SessionTTL, err = getenvDuration("SESSION_TTL", 12*time.Hour); err != nil {

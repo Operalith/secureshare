@@ -114,7 +114,10 @@ func (s *fakeStore) Dashboard(context.Context) (DashboardStats, error) {
 func (s *fakeStore) RecentActivity(context.Context, int) ([]ActivityEvent, error) {
 	return nil, nil
 }
-func (s *fakeStore) Revoke(context.Context, uuid.UUID) (bool, error) { return true, nil }
+func (s *fakeStore) Revoke(context.Context, uuid.UUID) (RevokeResult, error) {
+	return RevokeResult{Status: StatusRevoked, Revoked: true, Found: true}, nil
+}
+func (s *fakeStore) RecordAuditEvent(context.Context, AuditEventRecord) error { return nil }
 func (s *fakeStore) Prepare(context.Context, []byte) (PrepareResponse, error) {
 	return PrepareResponse{MayAttempt: true}, nil
 }
@@ -132,5 +135,8 @@ func (s *fakeStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error 
 func (s *fakeStore) CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	s.completed = true
 	return true, nil
+}
+func (s *fakeStore) Cleanup(context.Context, time.Duration, time.Duration, time.Duration, time.Duration, time.Duration) (CleanupResult, error) {
+	return CleanupResult{}, nil
 }
 func (s *fakeStore) CountActive(context.Context) (float64, error) { return 0, nil }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -207,6 +208,30 @@ func (c *integration) postJSON(t *testing.T, path string, payload any, headers m
 	return resp.StatusCode, body
 }
 
+func (c *integration) getJSON(t *testing.T, path string, headers map[string]string) (int, map[string]any, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	rawBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(rawBytes)
+	var body map[string]any
+	_ = json.Unmarshal(rawBytes, &body)
+	return resp.StatusCode, body, raw
+}
+
 func (c *integration) assertCiphertextOnly(t *testing.T, id string, marker string) {
 	t.Helper()
 	ctx := context.Background()
@@ -227,6 +252,23 @@ func (c *integration) assertCiphertextOnly(t *testing.T, id string, marker strin
 	}
 }
 
+func (c *integration) assertAuditEvent(t *testing.T, eventType string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, c.databaseURL)
+	if err != nil {
+		t.Fatalf("database connect failed: %v", err)
+	}
+	defer conn.Close(ctx)
+	var count int
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE event_type = $1`, eventType).Scan(&count); err != nil {
+		t.Fatalf("query audit event failed: %v", err)
+	}
+	if count == 0 {
+		t.Fatalf("expected audit event %s", eventType)
+	}
+}
+
 func getenv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -243,6 +285,134 @@ func TestPayloadTooLargeIntegration(t *testing.T) {
 	}, map[string]string{"Authorization": "Bearer " + client.adminKey})
 	if status != 413 {
 		t.Fatalf("large payload = %d %#v, want 413", status, body)
+	}
+}
+
+func TestAdminManagementAPIsIntegration(t *testing.T) {
+	client := integrationClient(t)
+	alpha := client.create(t, map[string]any{
+		"title":               "Alpha searchable credentials",
+		"recipient_reference": "merchant-alpha",
+		"secret":              map[string]any{"value": "alpha-management-secret"},
+		"expires_in_seconds":  900,
+	})
+	revoked := client.create(t, map[string]any{
+		"title":               "Revoked management credentials",
+		"recipient_reference": "merchant-revoked",
+		"secret":              map[string]any{"value": "revoked-management-secret"},
+		"expires_in_seconds":  900,
+	})
+	consumed := client.create(t, map[string]any{
+		"title":               "Consumed management credentials",
+		"recipient_reference": "merchant-consumed",
+		"secret":              map[string]any{"value": "consumed-management-secret"},
+		"expires_in_seconds":  900,
+	})
+
+	status, _ := client.postJSON(t, "/api/v1/secret-links/"+revoked.ID+"/revoke", map[string]any{}, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 {
+		t.Fatalf("revoke status = %d, want 200", status)
+	}
+	status, _ = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": consumed.Token}, nil)
+	if status != 200 {
+		t.Fatalf("consume status = %d, want 200", status)
+	}
+
+	status, body, raw := client.getJSON(t, "/api/v1/secret-links?page_size=10&search=Alpha&sort=created_at&order=desc", map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 {
+		t.Fatalf("list status = %d %#v", status, body)
+	}
+	items := body["items"].([]any)
+	if len(items) == 0 {
+		t.Fatal("search list returned no items")
+	}
+	first := items[0].(map[string]any)
+	if first["id"] != alpha.ID {
+		t.Fatalf("search first id = %v, want %s", first["id"], alpha.ID)
+	}
+	for _, forbidden := range []string{"alpha-management-secret", alpha.Token, "vault:v", "token_hash", "password_hash", "encrypted_payload"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("list response contained sensitive value %q: %s", forbidden, raw)
+		}
+	}
+
+	status, body, _ = client.getJSON(t, "/api/v1/secret-links?status=revoked&page_size=10", map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 {
+		t.Fatalf("revoked list status = %d", status)
+	}
+	foundRevoked := false
+	for _, item := range body["items"].([]any) {
+		row := item.(map[string]any)
+		if row["id"] == revoked.ID && row["status"] == "revoked" {
+			foundRevoked = true
+		}
+	}
+	if !foundRevoked {
+		t.Fatal("revoked filter did not include revoked secret")
+	}
+
+	status, body, _ = client.getJSON(t, "/api/v1/dashboard", map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 {
+		t.Fatalf("dashboard status = %d %#v", status, body)
+	}
+	if _, ok := body["active_count"]; !ok {
+		t.Fatalf("dashboard missing counts: %#v", body)
+	}
+	deps := body["dependencies"].(map[string]any)
+	if deps["postgres"] != "healthy" || deps["vault"] != "healthy" {
+		t.Fatalf("dashboard dependency state = %#v, want healthy", deps)
+	}
+
+	status, body = client.postJSON(t, "/api/v1/admin/cleanup", map[string]any{}, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 || body["ok"] != true {
+		t.Fatalf("manual cleanup = %d %#v, want ok", status, body)
+	}
+
+	client.assertAuditEvent(t, "secret.created")
+	client.assertAuditEvent(t, "secret.consumed")
+	client.assertAuditEvent(t, "secret.revoked")
+}
+
+func TestRevokeIdempotencyAndConsumedHistoryIntegration(t *testing.T) {
+	client := integrationClient(t)
+	active := client.create(t, map[string]any{
+		"title":              "Idempotent revoke",
+		"secret":             map[string]any{"value": "idempotent-secret"},
+		"expires_in_seconds": 900,
+	})
+	status, body := client.postJSON(t, "/api/v1/secret-links/"+active.ID+"/revoke", map[string]any{}, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 || body["status"] != "revoked" {
+		t.Fatalf("first revoke = %d %#v", status, body)
+	}
+	status, body = client.postJSON(t, "/api/v1/secret-links/"+active.ID+"/revoke", map[string]any{}, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 || body["status"] != "revoked" {
+		t.Fatalf("second revoke = %d %#v, want idempotent revoked", status, body)
+	}
+
+	consumed := client.create(t, map[string]any{
+		"title":              "Consumed not revoked",
+		"secret":             map[string]any{"value": "consumed-history-secret"},
+		"expires_in_seconds": 900,
+	})
+	status, _ = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": consumed.Token}, nil)
+	if status != 200 {
+		t.Fatalf("consume before revoke = %d, want 200", status)
+	}
+	status, body = client.postJSON(t, "/api/v1/secret-links/"+consumed.ID+"/revoke", map[string]any{}, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 || body["status"] != "consumed" {
+		t.Fatalf("revoke consumed = %d %#v, want consumed status", status, body)
+	}
+	status, body, _ = client.getJSON(t, "/api/v1/secret-links/"+consumed.ID, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != 200 || body["status"] != "consumed" {
+		t.Fatalf("metadata after consumed revoke = %d %#v, want consumed", status, body)
+	}
+}
+
+func TestUnauthorizedListingIntegration(t *testing.T) {
+	client := integrationClient(t)
+	status, _, _ := client.getJSON(t, "/api/v1/secret-links", map[string]string{})
+	if status != 401 {
+		t.Fatalf("unauthorized list = %d, want 401", status)
 	}
 }
 

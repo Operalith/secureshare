@@ -178,25 +178,15 @@ func (r *Repository) RecentActivity(ctx context.Context, limit int) ([]ActivityE
 		limit = 8
 	}
 	rows, err := r.db.Query(ctx, `
-		SELECT event_type, id, COALESCE(title,''), COALESCE(recipient_reference,''), status, created_by, occurred_at, consumed_at, revoked_at
-		FROM (
-			SELECT 'secret.created' AS event_type, id, title, recipient_reference, status, created_by, created_at AS occurred_at, consumed_at, revoked_at
-			FROM secret_deliveries
-			UNION ALL
-			SELECT 'secret.consumed' AS event_type, id, title, recipient_reference, status, created_by, consumed_at AS occurred_at, consumed_at, revoked_at
-			FROM secret_deliveries
-			WHERE consumed_at IS NOT NULL
-			UNION ALL
-			SELECT 'secret.revoked' AS event_type, id, title, recipient_reference, status, created_by, revoked_at AS occurred_at, consumed_at, revoked_at
-			FROM secret_deliveries
-			WHERE revoked_at IS NOT NULL
-			UNION ALL
-			SELECT 'secret.expired' AS event_type, id, title, recipient_reference, status, created_by, updated_at AS occurred_at, consumed_at, revoked_at
-			FROM secret_deliveries
-			WHERE status = 'expired'
-		) events
-		WHERE occurred_at IS NOT NULL
-		ORDER BY occurred_at DESC
+		SELECT audit_events.id, audit_events.event_type,
+			COALESCE(audit_events.delivery_id, '00000000-0000-0000-0000-000000000000'::uuid),
+			COALESCE(secret_deliveries.title,''), COALESCE(secret_deliveries.recipient_reference,''),
+			COALESCE(secret_deliveries.status,''), COALESCE(audit_events.actor_id,''),
+			audit_events.result, COALESCE(audit_events.ip_hash,''), COALESCE(audit_events.request_id,''),
+			audit_events.occurred_at, secret_deliveries.consumed_at, secret_deliveries.revoked_at
+		FROM audit_events
+		LEFT JOIN secret_deliveries ON secret_deliveries.id = audit_events.delivery_id
+		ORDER BY audit_events.occurred_at DESC
 		LIMIT $1
 	`, limit)
 	if err != nil {
@@ -206,8 +196,8 @@ func (r *Repository) RecentActivity(ctx context.Context, limit int) ([]ActivityE
 	events := []ActivityEvent{}
 	for rows.Next() {
 		var event ActivityEvent
-		if err := rows.Scan(&event.Type, &event.DeliveryID, &event.Title, &event.RecipientReference, &event.Status,
-			&event.ActorID, &event.OccurredAt, &event.ConsumedAt, &event.RevokedAt); err != nil {
+		if err := rows.Scan(&event.EventID, &event.Type, &event.DeliveryID, &event.Title, &event.RecipientReference, &event.Status,
+			&event.ActorID, &event.Result, &event.IPHash, &event.RequestID, &event.OccurredAt, &event.ConsumedAt, &event.RevokedAt); err != nil {
 			return nil, err
 		}
 		events = append(events, event)
@@ -215,7 +205,7 @@ func (r *Repository) RecentActivity(ctx context.Context, limit int) ([]ActivityE
 	return events, rows.Err()
 }
 
-func (r *Repository) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
+func (r *Repository) Revoke(ctx context.Context, id uuid.UUID) (RevokeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tag, err := r.db.Exec(ctx, `
@@ -230,9 +220,30 @@ func (r *Repository) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
 		  AND status IN ('active', 'consuming')
 	`, id)
 	if err != nil {
-		return false, err
+		return RevokeResult{}, err
 	}
-	return tag.RowsAffected() == 1, nil
+	if tag.RowsAffected() == 1 {
+		return RevokeResult{ID: id, Status: StatusRevoked, Revoked: true, Found: true}, nil
+	}
+	var status string
+	err = r.db.QueryRow(ctx, `SELECT status FROM secret_deliveries WHERE id = $1`, id).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RevokeResult{ID: id, Status: "unavailable", Revoked: false, Found: false}, nil
+	}
+	if err != nil {
+		return RevokeResult{}, err
+	}
+	return RevokeResult{ID: id, Status: status, Revoked: false, Found: true}, nil
+}
+
+func (r *Repository) RecordAuditEvent(ctx context.Context, event AuditEventRecord) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO audit_events (delivery_id, actor_id, event_type, result, ip_hash, request_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, event.DeliveryID, emptyToNil(event.ActorID), event.Type, emptyDefault(event.Result, "success"), emptyToNil(event.IPHash), emptyToNil(event.RequestID))
+	return err
 }
 
 func (r *Repository) Prepare(ctx context.Context, tokenHash []byte) (PrepareResponse, error) {
@@ -335,14 +346,14 @@ func (r *Repository) CompleteConsume(ctx context.Context, id uuid.UUID, leaseID 
 	return tag.RowsAffected() == 1, nil
 }
 
-func (r *Repository) Cleanup(ctx context.Context, consumedRetention, expiredRetention, revokedRetention, leaseTTL time.Duration) (expired int64, cleared int64, restored int64, err error) {
+func (r *Repository) Cleanup(ctx context.Context, consumedRetention, expiredRetention, revokedRetention, leaseTTL, auditRetention time.Duration) (result CleanupResult, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	leaseSeconds := int64(leaseTTL.Seconds())
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return 0, 0, 0, err
+		return CleanupResult{}, err
 	}
 	defer func() {
 		if err != nil {
@@ -358,9 +369,9 @@ func (r *Repository) Cleanup(ctx context.Context, consumedRetention, expiredRete
 		  AND expires_at <= NOW()
 	`)
 	if err != nil {
-		return 0, 0, 0, err
+		return CleanupResult{}, err
 	}
-	expired = tag.RowsAffected()
+	result.Expired = tag.RowsAffected()
 
 	tag, err = tx.Exec(ctx, `
 		UPDATE secret_deliveries
@@ -373,9 +384,9 @@ func (r *Repository) Cleanup(ctx context.Context, consumedRetention, expiredRete
 		  AND expires_at > NOW()
 	`, leaseSeconds)
 	if err != nil {
-		return 0, 0, 0, err
+		return CleanupResult{}, err
 	}
-	restored = tag.RowsAffected()
+	result.LeasesRestored = tag.RowsAffected()
 
 	tag, err = tx.Exec(ctx, `
 		UPDATE secret_deliveries
@@ -389,14 +400,23 @@ func (r *Repository) Cleanup(ctx context.Context, consumedRetention, expiredRete
 		  )
 	`, int64(consumedRetention.Seconds()), int64(expiredRetention.Seconds()), int64(revokedRetention.Seconds()))
 	if err != nil {
-		return 0, 0, 0, err
+		return CleanupResult{}, err
 	}
-	cleared = tag.RowsAffected()
+	result.PayloadsCleared = tag.RowsAffected()
+
+	tag, err = tx.Exec(ctx, `
+		DELETE FROM audit_events
+		WHERE occurred_at <= NOW() - make_interval(secs => $1)
+	`, int64(auditRetention.Seconds()))
+	if err != nil {
+		return CleanupResult{}, err
+	}
+	result.AuditDeleted = tag.RowsAffected()
 
 	if err = tx.Commit(ctx); err != nil {
-		return 0, 0, 0, err
+		return CleanupResult{}, err
 	}
-	return expired, cleared, restored, nil
+	return result, nil
 }
 
 func (r *Repository) CountActive(ctx context.Context) (float64, error) {
@@ -417,6 +437,13 @@ func emptyToNil(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func emptyDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func normalizeListOptions(opts ListOptions) ListOptions {

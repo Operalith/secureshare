@@ -29,12 +29,14 @@ type Store interface {
 	List(context.Context, ListOptions) (ListResult, error)
 	Dashboard(context.Context) (DashboardStats, error)
 	RecentActivity(context.Context, int) ([]ActivityEvent, error)
-	Revoke(context.Context, uuid.UUID) (bool, error)
+	Revoke(context.Context, uuid.UUID) (RevokeResult, error)
+	RecordAuditEvent(context.Context, AuditEventRecord) error
 	Prepare(context.Context, []byte) (PrepareResponse, error)
 	BeginConsume(context.Context, []byte, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error)
 	RecordPasswordFailure(context.Context, uuid.UUID, uuid.UUID) error
 	RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error
 	CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	Cleanup(context.Context, time.Duration, time.Duration, time.Duration, time.Duration, time.Duration) (CleanupResult, error)
 	CountActive(context.Context) (float64, error)
 }
 
@@ -106,6 +108,7 @@ func (s *Service) Create(ctx context.Context, actorID string, req CreateRequest)
 	}); err != nil {
 		return CreateResponse{}, fmt.Errorf("%w: insert delivery failed", ErrInternal)
 	}
+	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &id, ActorID: actorID, Type: "secret.created", Result: "success"})
 	s.metrics.SecretCreated.Inc()
 	return CreateResponse{
 		ID:        id,
@@ -131,12 +134,25 @@ func (s *Service) RecentActivity(ctx context.Context, limit int) ([]ActivityEven
 	return s.store.RecentActivity(ctx, limit)
 }
 
-func (s *Service) Revoke(ctx context.Context, id uuid.UUID) (bool, error) {
-	ok, err := s.store.Revoke(ctx, id)
-	if err == nil && ok {
+func (s *Service) Revoke(ctx context.Context, id uuid.UUID, actorID, ipHash, requestID string) (RevokeResult, error) {
+	result, err := s.store.Revoke(ctx, id)
+	if err == nil && result.Revoked {
 		s.metrics.SecretRevoked.Inc()
 	}
-	return ok, err
+	auditResult := "unavailable"
+	if result.Found {
+		auditResult = result.Status
+	}
+	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &id, ActorID: actorID, Type: "secret.revoked", Result: auditResult, IPHash: ipHash, RequestID: requestID})
+	return result, err
+}
+
+func (s *Service) RecordAudit(ctx context.Context, event AuditEventRecord) {
+	s.recordAudit(ctx, event)
+}
+
+func (s *Service) Cleanup(ctx context.Context) (CleanupResult, error) {
+	return s.store.Cleanup(ctx, s.cfg.ConsumedRetention, s.cfg.ExpiredRetention, s.cfg.RevokedRetention, s.cfg.ConsumingLeaseTTL, s.cfg.AuditRetention)
 }
 
 func (s *Service) Prepare(ctx context.Context, token string) (PrepareResponse, error) {
@@ -176,6 +192,7 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 		if err := s.store.RecordPasswordFailure(ctx, item.ID, leaseID); err != nil {
 			s.logger.Warn("password failure state update failed", "delivery_id", item.ID, "error", err)
 		}
+		s.recordAudit(ctx, AuditEventRecord{DeliveryID: &item.ID, Type: "secret.password_failed", Result: "unavailable"})
 		s.metrics.SecretUnavailable.Inc()
 		return ConsumeResponse{}, ErrSecretUnavailable
 	}
@@ -200,8 +217,18 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 	if !json.Valid(plaintext) {
 		return ConsumeResponse{}, fmt.Errorf("%w: decrypted payload was invalid", ErrInternal)
 	}
+	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &item.ID, Type: "secret.consumed", Result: "success"})
 	s.metrics.SecretConsumed.Inc()
 	return ConsumeResponse{Secret: json.RawMessage(plaintext)}, nil
+}
+
+func (s *Service) recordAudit(ctx context.Context, event AuditEventRecord) {
+	if event.Result == "" {
+		event.Result = "success"
+	}
+	if err := s.store.RecordAuditEvent(ctx, event); err != nil {
+		s.logger.Warn("audit event recording failed", "event_type", event.Type, "result", event.Result, "error", err)
+	}
 }
 
 func (s *Service) validateCreate(req CreateRequest) error {
