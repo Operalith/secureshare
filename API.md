@@ -26,6 +26,8 @@ curl -u "$CLIENT_ID:$CLIENT_SECRET" ...
 
 API client secrets are shown only at creation or rotation time. The server stores only an HMAC of the client secret with `TOKEN_HMAC_PEPPER`. Basic auth must be used only over HTTPS outside local development.
 
+SecureShare API client credentials are independent from structured secret payload fields with the same names. A payload field named `client_id` or `client_secret` is encrypted content for the recipient; it does not create, select, update, rotate, overwrite, or link an API client. API client secrets remain available only in the creation or rotation response and are never returned by metadata endpoints.
+
 Internal management endpoints still accept the deprecated legacy admin key for machine-to-machine compatibility when `LEGACY_ADMIN_API_KEY_ENABLED=true`:
 
 ```http

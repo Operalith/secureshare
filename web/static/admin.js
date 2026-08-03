@@ -179,6 +179,12 @@
     }
 
     function labelForField(name) {
+      const credentialLabels = {
+        client_id: "OAuth Client ID",
+        client_secret: "OAuth Client Secret",
+      };
+      const normalized = name.toLowerCase();
+      if (credentialLabels[normalized]) return credentialLabels[normalized];
       return name
         .replace(/[_.-]+/g, " ")
         .replace(/\b\w/g, (value) => value.toUpperCase());

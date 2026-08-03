@@ -27,6 +27,7 @@
             <div><p class="eyebrow">Safe metadata</p><h2>Client profile</h2></div>
             <span class="badge {{ if eq .Client.Status "active" }}success{{ else if eq .Client.Status "disabled" }}warning{{ else }}danger{{ end }}">{{ .Client.Status }}</span>
           </div>
+          <p class="muted">This API client authenticates an application to SecureShare. Client ID and Client Secret fields in delivered payloads do not reference or modify it.</p>
           <div class="status-list">
             <div><span>Name</span><strong>{{ .Client.Name }}</strong></div>
             <div><span>Client ID</span><strong class="technical-value">{{ .Client.ClientID }}</strong></div>

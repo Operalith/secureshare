@@ -96,6 +96,68 @@ func TestFlexibleStructuredPayloadIntegration(t *testing.T) {
 	}
 }
 
+func TestCredentialPayloadFieldsRemainIndependentFromAPIClients(t *testing.T) {
+	client := integrationClient(t)
+	status, apiClient := client.postJSON(t, "/api/v1/api-clients", map[string]any{
+		"name":       "Payload isolation " + client.runID,
+		"scopes":     []string{"secret:create"},
+		"expires_at": "",
+	}, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != http.StatusCreated {
+		t.Fatalf("create API client = %d %#v, want 201", status, apiClient)
+	}
+	apiClientID, _ := apiClient["id"].(string)
+	apiClientSecret, _ := apiClient["client_secret"].(string)
+	if apiClientID == "" || apiClientSecret == "" {
+		t.Fatal("API client creation response omitted one-time credentials")
+	}
+	beforeCount, beforeRow := client.apiClientSnapshot(t, apiClientID)
+
+	deliveredClientID := "oauth-client-id-" + client.runID
+	deliveredClientSecret := "oauth-client-secret-" + client.runID
+	created := client.create(t, map[string]any{
+		"title":              "OAuth client credentials",
+		"expires_in_seconds": 900,
+		"payload": map[string]any{
+			"type": "structured",
+			"fields": []map[string]any{
+				{"name": "client_id", "label": "OAuth Client ID", "value": deliveredClientID, "sensitive": false, "multiline": false},
+				{"name": "client_secret", "label": "OAuth Client Secret", "value": deliveredClientSecret, "sensitive": true, "multiline": false},
+			},
+		},
+	})
+
+	status, consumed := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token}, nil)
+	if status != http.StatusOK {
+		t.Fatalf("consume credential payload = %d %#v, want 200", status, consumed)
+	}
+	fields := consumed["payload"].(map[string]any)["fields"].([]any)
+	values := map[string]string{}
+	for _, item := range fields {
+		field := item.(map[string]any)
+		values[field["name"].(string)] = field["value"].(string)
+	}
+	if values["client_id"] != deliveredClientID || values["client_secret"] != deliveredClientSecret {
+		t.Fatal("consumed payload did not preserve the independent OAuth credential fields")
+	}
+	status, consumed = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token}, nil)
+	if status != http.StatusGone || consumed["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("second credential payload consume = %d %#v, want generic 410", status, consumed)
+	}
+
+	afterCount, afterRow := client.apiClientSnapshot(t, apiClientID)
+	if beforeCount != afterCount || beforeRow != afterRow {
+		t.Fatal("client_id/client_secret delivery fields created or modified an API client")
+	}
+	status, _, raw := client.getJSON(t, "/api/v1/api-clients/"+apiClientID, map[string]string{"Authorization": "Bearer " + client.adminKey})
+	if status != http.StatusOK {
+		t.Fatalf("get API client metadata = %d, want 200", status)
+	}
+	if strings.Contains(raw, apiClientSecret) || strings.Contains(raw, `"client_secret"`) || strings.Contains(raw, "client_secret_hash") {
+		t.Fatal("API client metadata exposed one-time client secret material")
+	}
+}
+
 func TestConcurrentConsumeIntegration(t *testing.T) {
 	client := integrationClient(t)
 	created := client.create(t, map[string]any{
@@ -391,6 +453,25 @@ func (c *integration) assertCiphertextOnly(t *testing.T, id string, marker strin
 	if !strings.HasPrefix(encrypted, "vault:v") {
 		t.Fatalf("encrypted payload did not look like Vault ciphertext: %q", encrypted)
 	}
+}
+
+func (c *integration) apiClientSnapshot(t *testing.T, id string) (int, string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, c.databaseURL)
+	if err != nil {
+		t.Fatalf("database connect failed: %v", err)
+	}
+	defer conn.Close(ctx)
+	var count int
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM api_clients`).Scan(&count); err != nil {
+		t.Fatalf("query API client count failed: %v", err)
+	}
+	var row string
+	if err := conn.QueryRow(ctx, `SELECT row_to_json(api_clients)::text FROM api_clients WHERE id = $1`, id).Scan(&row); err != nil {
+		t.Fatalf("query API client snapshot failed: %v", err)
+	}
+	return count, row
 }
 
 func (c *integration) assertAuditEvent(t *testing.T, eventType string) {

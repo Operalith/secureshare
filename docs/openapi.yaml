@@ -124,6 +124,8 @@ paths:
       summary: Create one-time secret link
       description: >
         Requires `secret:create`. Values in `payload` and legacy `secret` are encrypted and never returned by metadata APIs.
+        Structured fields named `client_id` or `client_secret` are delivery content and never create, update, rotate,
+        overwrite, or link a SecureShare API client.
         Optional SMTP delivery is disabled unless `delivery.email.send=true` or the compatibility alias `send_email=true`
         is explicitly provided; API clients also need `email:send`.
       security:
@@ -748,7 +750,7 @@ paths:
     get:
       tags: [API Clients]
       summary: List API clients
-      description: Admin-only. Secrets and secret hashes are never returned.
+      description: Admin-only. API clients authenticate applications to SecureShare and are independent from secret-delivery payload fields. Secrets and secret hashes are never returned.
       security:
         - LegacyAdminBearer: []
         - CookieSession: []
@@ -768,7 +770,7 @@ paths:
     post:
       tags: [API Clients]
       summary: Create API client
-      description: Admin-only. The client secret is returned only in this response.
+      description: Admin-only. Creates a SecureShare machine identity, not a secret-delivery template. The client secret is returned only in this response.
       security:
         - LegacyAdminBearer: []
         - CookieSession: []
@@ -1088,6 +1090,7 @@ components:
         name:
           type: string
           pattern: '^[A-Za-z0-9_.-]+$'
+          description: Field name inside the encrypted delivery payload. Names such as `client_id` and `client_secret` do not reference or modify SecureShare API clients.
           example: username
         label:
           type: string
@@ -1746,6 +1749,7 @@ components:
           type: boolean
     APIClient:
       type: object
+      description: Scoped machine identity for authenticating to the SecureShare API. It is independent from fields inside an encrypted secret-delivery payload.
       required: [id, name, client_id, status, scopes, created_at, updated_at]
       properties:
         id:
@@ -1756,6 +1760,7 @@ components:
           example: CI deployment bot
         client_id:
           type: string
+          description: Public identifier for this SecureShare API client, not a reference to a delivered payload field.
           example: ssc_example
         owner_user_id:
           type: string
@@ -1805,6 +1810,7 @@ components:
             client_secret:
               type: string
               writeOnly: true
+              description: One-time-visible SecureShare API authentication secret returned only at creation or rotation.
               example: sscs_copy-once-example
     ErrorResponse:
       type: object

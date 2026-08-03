@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{"/static/time.js", "data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "class=\"active\" data-delivery-mode=\"link\">Generate link only", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result", "created-email-sent"} {
+	for _, want := range []string{"/static/time.js", "data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "class=\"active\" data-delivery-mode=\"link\">Generate link only", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result", "created-email-sent", "OAuth Client ID", "OAuth Client Secret", "These fields are part of the secret being delivered. They do not create or modify SecureShare API clients."} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("create form missing %q", want)
 		}
@@ -80,6 +81,58 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	}
 	if !strings.Contains(string(javascript), "if (sendEmail) {\n        payload.delivery = {") {
 		t.Fatal("link-only browser submission does not omit the email delivery object")
+	}
+	for _, want := range []string{`client_id: "OAuth Client ID"`, `client_secret: "OAuth Client Secret"`} {
+		if !strings.Contains(string(javascript), want) {
+			t.Fatalf("structured-field label mapping missing %q", want)
+		}
+	}
+}
+
+func TestCredentialPayloadFieldsDoNotMutateAPIClients(t *testing.T) {
+	app, store := testServerWithDeliveryStore(nil)
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	created, _ := createAPIClientViaHTTP(t, app, cookie, csrf, "Independent API client", []string{"secret:create"}, "")
+	before, err := app.clients.ListAPIClients(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeClient, err := app.clients.APIClientByID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requestBody := `{"title":"OAuth credentials for delivery","expires_in_seconds":900,"payload":{"type":"structured","fields":[{"name":"client_id","label":"OAuth Client ID","value":"recipient-client-id","sensitive":false,"multiline":false},{"name":"client_secret","label":"OAuth Client Secret","value":"recipient-client-secret","sensitive":true,"multiline":false}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer change-me")
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create credential payload = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	if store.inserts != 1 {
+		t.Fatalf("secret delivery inserts = %d, want 1", store.inserts)
+	}
+
+	after, err := app.clients.ListAPIClients(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterClient, err := app.clients.APIClientByID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(beforeClient, afterClient) {
+		t.Fatal("creating client_id/client_secret delivery fields changed API client state")
+	}
+
+	clientsReq := httptest.NewRequest(http.MethodGet, "/admin/api-clients", nil)
+	clientsReq.AddCookie(cookie)
+	clientsRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(clientsRec, clientsReq)
+	if clientsRec.Code != http.StatusOK || !strings.Contains(clientsRec.Body.String(), "API clients authenticate applications to the SecureShare API. Their credentials are not secret-delivery templates.") {
+		t.Fatalf("API clients page missing concept help text: %s", clientsRec.Body.String())
 	}
 }
 

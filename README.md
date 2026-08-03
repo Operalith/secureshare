@@ -75,6 +75,12 @@ The Go app renders the admin and recipient pages directly. There is no React, No
 
 Email delivery is optional. Administrators configure SMTP at `/admin/settings/email`; the SMTP password is encrypted with Vault Transit and is never returned by API or HTML. Create-secret requests send email only when `delivery.email.send=true` or the compatibility alias `send_email=true` is explicitly provided. API clients also need the `email:send` scope.
 
+## API Clients and Delivered Credential Fields
+
+A SecureShare API client is a scoped machine identity used to authenticate an application to the SecureShare API. Its `client_id` and one-time-visible `client_secret` belong to SecureShare authentication; only the client-secret HMAC is stored.
+
+Structured secret fields named `client_id` or `client_secret` are ordinary encrypted credential values being delivered to a recipient, such as OAuth credentials for another service. Creating or consuming a secret with those field names creates only a secret delivery. It does not create, update, rotate, overwrite, or link a SecureShare API client.
+
 ## One-Time Consumption
 
 Consume is concurrency-safe:

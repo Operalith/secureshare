@@ -24,6 +24,7 @@
       <main class="content-grid">
         <section class="panel form-section">
           <div class="section-heading"><div><p class="eyebrow">Shown once</p><h2>Client details</h2></div><a class="secondary-link compact" href="/admin/api-clients">Back</a></div>
+          <p class="muted">This API client authenticates an application to SecureShare. It is independent from Client ID or Client Secret fields placed in a one-time secret delivery.</p>
           <form class="form-stack" data-api-client-create>
             <label>Name<input name="name" maxlength="255" placeholder="CI deployment bot" required></label>
             <fieldset class="fieldset-grid">
@@ -43,7 +44,7 @@
             <label>Client ID<span class="input-with-action"><input id="api-client-id" class="technical-value" readonly><button type="button" class="ghost compact" data-copy-target="#api-client-id">Copy</button></span></label>
             <label>Client secret<span class="input-with-action"><input id="api-client-secret" class="technical-value" readonly><button type="button" class="ghost compact" data-copy-target="#api-client-secret">Copy</button></span></label>
           </div>
-          <p class="fine-print">The client secret is not stored in plaintext and cannot be retrieved later.</p>
+          <p class="fine-print">The client secret is shown only now, is not stored in plaintext, and cannot be retrieved later.</p>
           <div class="actions"><a id="view-api-client" class="button-link secondary-link" href="/admin/api-clients">View metadata</a></div>
         </section>
       </main>

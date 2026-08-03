@@ -14,6 +14,10 @@ Sign in to `/login` with a local admin account and open `/admin/api-clients`. Cr
 
 Copy the `client_id` and `client_secret` immediately. The secret is shown only once.
 
+### API clients are not secret payload templates
+
+An API client is a scoped machine identity that authenticates requests to SecureShare. By contrast, structured payload fields named `client_id` and `client_secret` are encrypted credentials being delivered to the recipient, often for a different OAuth service. Creating a delivery with those field names does not create, update, rotate, overwrite, or link a SecureShare API client. The API client secret remains one-time-visible only in its creation or rotation response.
+
 ## 2. Authentication
 
 Use HTTP Basic auth:
