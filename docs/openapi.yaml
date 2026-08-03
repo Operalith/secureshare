@@ -1178,7 +1178,9 @@ components:
           maximum: 20
           default: 5
         delivery:
-          $ref: '#/components/schemas/DeliveryRequest'
+          allOf:
+            - $ref: '#/components/schemas/DeliveryRequest'
+          description: Omit for link-only creation. SMTP configuration is inspected only when email sending is explicitly requested.
         send_email:
           type: boolean
           description: Compatibility alias for `delivery.email.send`. Nested `delivery.email` takes precedence.

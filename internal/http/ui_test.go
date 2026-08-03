@@ -69,10 +69,17 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{"data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result"} {
+	for _, want := range []string{"data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "class=\"active\" data-delivery-mode=\"link\">Generate link only", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("create form missing %q", want)
 		}
+	}
+	javascript, err := os.ReadFile("../../web/static/admin.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(javascript), "if (sendEmail) {\n        payload.delivery = {") {
+		t.Fatal("link-only browser submission does not omit the email delivery object")
 	}
 }
 
@@ -553,17 +560,65 @@ func TestEmailSettingsProductionRejectsUnencryptedSMTP(t *testing.T) {
 }
 
 func TestEmailDeliveryCreatePreflightAndScopeBehavior(t *testing.T) {
-	app := testServer()
-	linkOnly := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"link-only","expires_in_seconds":900,"send_email":false}`))
-	linkOnly.Header.Set("Content-Type", "application/json")
-	linkOnly.Header.Set("Authorization", "Bearer change-me")
-	linkOnlyRec := httptest.NewRecorder()
-	app.Handler().ServeHTTP(linkOnlyRec, linkOnly)
-	if linkOnlyRec.Code != http.StatusCreated {
-		t.Fatalf("link-only create = %d, want 201: %s", linkOnlyRec.Code, linkOnlyRec.Body.String())
+	missingSettingsApp, missingSettingsStore := testServerWithDeliveryStore(nil)
+	missingSettingsRequest := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"missing-smtp","expires_in_seconds":900}`))
+	missingSettingsRequest.Header.Set("Content-Type", "application/json")
+	missingSettingsRequest.Header.Set("Authorization", "Bearer change-me")
+	missingSettingsRecorder := httptest.NewRecorder()
+	missingSettingsApp.Handler().ServeHTTP(missingSettingsRecorder, missingSettingsRequest)
+	if missingSettingsRecorder.Code != http.StatusCreated || missingSettingsStore.inserts != 1 {
+		t.Fatalf("link-only create without SMTP settings = %d, inserts=%d: %s", missingSettingsRecorder.Code, missingSettingsStore.inserts, missingSettingsRecorder.Body.String())
 	}
-	if !strings.Contains(linkOnlyRec.Body.String(), `"status":"not_requested"`) {
-		t.Fatalf("link-only response missing not_requested delivery: %s", linkOnlyRec.Body.String())
+
+	app, store := testServerWithDeliveryStore(nil)
+	if _, err := app.email.Update(context.Background(), testUUID, secureemail.UpdateRequest{
+		Enabled:                  false,
+		SMTPHost:                 "smtp.must-not-resolve.invalid",
+		SMTPPort:                 587,
+		EncryptionMode:           secureemail.EncryptionStartTLS,
+		FromName:                 "SecureShare",
+		FromEmail:                "secureshare@example.local",
+		ConnectionTimeoutSeconds: 1,
+		SendTimeoutSeconds:       1,
+		DefaultSubject:           secureemail.DefaultSubject,
+		DefaultMessage:           secureemail.DefaultMessage,
+	}); err != nil {
+		t.Fatalf("save disabled SMTP fixture: %v", err)
+	}
+	linkOnlyRequests := []struct {
+		name string
+		body string
+	}{
+		{name: "no delivery object", body: `{"secret":"no-delivery","expires_in_seconds":900}`},
+		{name: "delivery without email", body: `{"secret":"no-email","expires_in_seconds":900,"delivery":{}}`},
+		{name: "email without send", body: `{"secret":"no-send","expires_in_seconds":900,"delivery":{"email":{}}}`},
+		{name: "canonical false", body: `{"secret":"canonical-false","expires_in_seconds":900,"delivery":{"email":{"send":false}}}`},
+		{name: "compatibility false", body: `{"secret":"compatibility-false","expires_in_seconds":900,"send_email":false}`},
+		{name: "canonical false overrides compatibility true", body: `{"secret":"canonical-override","expires_in_seconds":900,"send_email":true,"recipient_email":"person@example.local","delivery":{"email":{"send":false}}}`},
+	}
+	for _, test := range linkOnlyRequests {
+		t.Run(test.name, func(t *testing.T) {
+			beforeAudits := len(store.auditEvents)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer change-me")
+			recorder := httptest.NewRecorder()
+			app.Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusCreated {
+				t.Fatalf("link-only create = %d, want 201: %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), `"requested":false`) || !strings.Contains(recorder.Body.String(), `"status":"not_requested"`) {
+				t.Fatalf("link-only response missing not_requested delivery: %s", recorder.Body.String())
+			}
+			for _, event := range store.auditEvents[beforeAudits:] {
+				if strings.HasPrefix(event.Type, "email.") {
+					t.Fatalf("link-only creation recorded email activity: %s", event.Type)
+				}
+			}
+		})
+	}
+	if store.inserts != len(linkOnlyRequests) {
+		t.Fatalf("link-only inserts = %d, want %d", store.inserts, len(linkOnlyRequests))
 	}
 
 	disabled := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"blocked","expires_in_seconds":900,"send_email":true,"recipient_email":"person@example.local"}`))
@@ -586,13 +641,31 @@ func TestEmailDeliveryCreatePreflightAndScopeBehavior(t *testing.T) {
 		t.Fatalf("missing email scope create = %d, want 403: %s", scopedRec.Code, scopedRec.Body.String())
 	}
 
-	canonicalFalse := httptest.NewRequest(http.MethodPost, "/api/v1/secret-links", strings.NewReader(`{"secret":"canonical-false","expires_in_seconds":900,"send_email":true,"recipient_email":"person@example.local","delivery":{"email":{"send":false}}}`))
-	canonicalFalse.Header.Set("Content-Type", "application/json")
-	canonicalFalse.Header.Set("Authorization", "Bearer change-me")
-	canonicalFalseRec := httptest.NewRecorder()
-	app.Handler().ServeHTTP(canonicalFalseRec, canonicalFalse)
-	if canonicalFalseRec.Code != http.StatusCreated {
-		t.Fatalf("canonical false override = %d, want 201: %s", canonicalFalseRec.Code, canonicalFalseRec.Body.String())
+}
+
+func TestEmailDeliveryRequestNormalizationRequiresExplicitTrue(t *testing.T) {
+	trueValue := true
+	falseValue := false
+	tests := []struct {
+		name      string
+		request   delivery.CreateRequest
+		requested bool
+	}{
+		{name: "missing", request: delivery.CreateRequest{}},
+		{name: "empty delivery", request: delivery.CreateRequest{Delivery: &delivery.DeliveryRequest{}}},
+		{name: "empty email", request: delivery.CreateRequest{Delivery: &delivery.DeliveryRequest{Email: &delivery.EmailDeliveryRequest{}}}},
+		{name: "canonical false", request: delivery.CreateRequest{Delivery: &delivery.DeliveryRequest{Email: &delivery.EmailDeliveryRequest{Send: &falseValue}}}},
+		{name: "compatibility false", request: delivery.CreateRequest{SendEmail: &falseValue}},
+		{name: "compatibility true", request: delivery.CreateRequest{SendEmail: &trueValue}, requested: true},
+		{name: "canonical true", request: delivery.CreateRequest{Delivery: &delivery.DeliveryRequest{Email: &delivery.EmailDeliveryRequest{Send: &trueValue}}}, requested: true},
+		{name: "canonical false wins", request: delivery.CreateRequest{Delivery: &delivery.DeliveryRequest{Email: &delivery.EmailDeliveryRequest{Send: &falseValue}}, SendEmail: &trueValue}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := emailDeliveryFromCreate(test.request).Requested; got != test.requested {
+				t.Fatalf("requested = %t, want %t", got, test.requested)
+			}
+		})
 	}
 }
 
@@ -630,6 +703,11 @@ func testServer() *Server {
 }
 
 func testServerWithConfig(configure func(*config.Config)) *Server {
+	app, _ := testServerWithDeliveryStore(configure)
+	return app
+}
+
+func testServerWithDeliveryStore(configure func(*config.Config)) (*Server, *uiStore) {
 	cfg := config.Config{
 		AppEnv:                   "development",
 		AppVersion:               "test",
@@ -661,17 +739,18 @@ func testServerWithConfig(configure func(*config.Config)) *Server {
 	}); err != nil {
 		panic(err)
 	}
+	deliveryStore := &uiStore{}
 	return New(Dependencies{
 		Config:   cfg,
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false).WithStore(users),
-		Delivery: delivery.NewService(cfg, &uiStore{}, &uiVault{}, observability.New(), slog.Default()),
+		Delivery: delivery.NewService(cfg, deliveryStore, &uiVault{}, observability.New(), slog.Default()),
 		Email:    secureemail.NewService(cfg, secureemail.NewMemoryStore(), &uiVault{}, observability.New(), slog.Default()),
 		Metrics:  observability.New(),
 		Limits:   ratelimit.NewRegistry(),
 		Users:    users,
 		Clients:  users,
-	})
+	}), deliveryStore
 }
 
 var testUUID = uuid.MustParse("11111111-1111-4111-8111-111111111111")
@@ -682,9 +761,15 @@ func (v *uiVault) Encrypt(context.Context, []byte) (string, error) { return "vau
 func (v *uiVault) Decrypt(context.Context, string) ([]byte, error) { return []byte(`{"ok":true}`), nil }
 func (v *uiVault) Ready(context.Context) error                     { return nil }
 
-type uiStore struct{}
+type uiStore struct {
+	inserts     int
+	auditEvents []delivery.AuditEventRecord
+}
 
-func (s *uiStore) Insert(context.Context, delivery.InsertParams) error { return nil }
+func (s *uiStore) Insert(context.Context, delivery.InsertParams) error {
+	s.inserts++
+	return nil
+}
 
 func (s *uiStore) Metadata(context.Context, uuid.UUID) (delivery.Metadata, error) {
 	now := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
@@ -753,7 +838,10 @@ func (s *uiStore) Revoke(context.Context, uuid.UUID) (delivery.RevokeResult, err
 	return delivery.RevokeResult{ID: testUUID, Status: delivery.StatusRevoked, Revoked: true, Found: true}, nil
 }
 
-func (s *uiStore) RecordAuditEvent(context.Context, delivery.AuditEventRecord) error { return nil }
+func (s *uiStore) RecordAuditEvent(_ context.Context, event delivery.AuditEventRecord) error {
+	s.auditEvents = append(s.auditEvents, event)
+	return nil
+}
 
 func (s *uiStore) Prepare(context.Context, []byte) (delivery.PrepareResponse, error) {
 	expires := time.Now().UTC().Add(time.Hour)

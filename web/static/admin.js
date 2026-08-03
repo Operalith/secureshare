@@ -272,16 +272,18 @@
         max_failed_attempts: Number(data.get("max_failed_attempts") || 5),
       };
       const sendEmail = deliveryMode() === "email";
-      payload.delivery = {
-        email: {
-          send: sendEmail,
-          to: String(data.get("delivery_to") || ""),
-          recipient_name: String(data.get("delivery_recipient_name") || ""),
-          use_default_template: data.get("delivery_use_default_template") === "on",
-          subject: String(data.get("delivery_subject") || ""),
-          message: String(data.get("delivery_message") || ""),
-        },
-      };
+      if (sendEmail) {
+        payload.delivery = {
+          email: {
+            send: true,
+            to: String(data.get("delivery_to") || ""),
+            recipient_name: String(data.get("delivery_recipient_name") || ""),
+            use_default_template: data.get("delivery_use_default_template") === "on",
+            subject: String(data.get("delivery_subject") || ""),
+            message: String(data.get("delivery_message") || ""),
+          },
+        };
+      }
       setButtonLoading(submit, true);
       setStatus("Creating encrypted one-time link...");
       try {
