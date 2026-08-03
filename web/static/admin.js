@@ -690,6 +690,46 @@
       };
     }
 
+    function clearSMTPFieldErrors() {
+      if (!settingsForm) return;
+      qsa("[aria-invalid]", settingsForm).forEach((field) => field.removeAttribute("aria-invalid"));
+    }
+
+    function smtpErrorMessage(body, fallback) {
+      const fields = body?.fields && typeof body.fields === "object" ? body.fields : {};
+      const messages = Object.entries(fields).map(([name, message]) => {
+        settingsForm?.querySelector(`[name="${name}"]`)?.setAttribute("aria-invalid", "true");
+        return String(message);
+      });
+      return [body?.message || fallback, ...messages].filter(Boolean).join(" ");
+    }
+
+    async function saveCurrentSettings(announce) {
+      if (!settingsForm) return { ok: true, body: {} };
+      const error = qs("[data-form-error]", settingsForm);
+      const status = qs("[data-email-status]", settingsForm);
+      if (error) error.textContent = "";
+      clearSMTPFieldErrors();
+      const response = await fetch("/api/v1/settings/email", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(settingsPayload(settingsForm)),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (error) error.textContent = smtpErrorMessage(body, "Email settings could not be saved.");
+        return { ok: false, body };
+      }
+      settingsForm.querySelector('input[name="smtp_password"]').value = "";
+      settingsForm.querySelector('input[name="clear_smtp_password"]').checked = false;
+      if (announce) {
+        if (status) status.textContent = body.password_configured ? "Settings saved. Password configured." : "Settings saved. No password is stored.";
+        toast("Email settings saved.");
+      }
+      return { ok: true, body };
+    }
+
     settingsForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const submit = event.submitter || settingsForm.querySelector('button[type="submit"]');
@@ -699,21 +739,7 @@
       if (status) status.textContent = "";
       setButtonLoading(submit, true);
       try {
-        const response = await fetch("/api/v1/settings/email", {
-          method: "PUT",
-          credentials: "same-origin",
-          headers: csrfHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify(settingsPayload(settingsForm)),
-        });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          if (error) error.textContent = body.message || "Email settings could not be saved.";
-          return;
-        }
-        settingsForm.querySelector('input[name="smtp_password"]').value = "";
-        settingsForm.querySelector('input[name="clear_smtp_password"]').checked = false;
-        if (status) status.textContent = body.password_configured ? "Settings saved. Password configured." : "Settings saved. No password is stored.";
-        toast("Email settings saved.");
+        await saveCurrentSettings(true);
       } finally {
         setButtonLoading(submit, false);
       }
@@ -760,6 +786,13 @@
       const status = qs("[data-email-status]", settingsForm);
       setButtonLoading(button, true);
       try {
+        if (action !== "disable") {
+          const saved = await saveCurrentSettings(false);
+          if (!saved.ok) {
+            if (status) status.textContent = "Fix the highlighted SMTP settings before testing.";
+            return;
+          }
+        }
         const response = await fetch(`/api/v1/settings/email/${action}`, {
           method: "POST",
           credentials: "same-origin",
@@ -768,9 +801,9 @@
         });
         const body = await response.json().catch(() => ({}));
         if (status) {
-          if (action === "test-connection") status.textContent = body.ok ? "Connection test succeeded." : `Connection test failed: ${body.error_category || "SMTP_CONFIGURATION_ERROR"}.`;
-          if (action === "enable") status.textContent = response.ok ? "SMTP delivery enabled." : "SMTP delivery could not be enabled.";
-          if (action === "disable") status.textContent = response.ok ? "SMTP delivery disabled." : "SMTP delivery could not be disabled.";
+          if (action === "test-connection") status.textContent = body.ok ? `Connection test succeeded in ${body.duration_ms} ms.` : smtpErrorMessage(body, "Connection test failed.");
+          if (action === "enable") status.textContent = response.ok ? "SMTP delivery enabled." : smtpErrorMessage(body, "SMTP delivery could not be enabled.");
+          if (action === "disable") status.textContent = response.ok ? "SMTP delivery disabled." : smtpErrorMessage(body, "SMTP delivery could not be disabled.");
         }
         toast(response.ok && body.ok !== false ? "Email settings action completed." : "Email settings action finished with warnings.");
       } finally {
@@ -785,6 +818,11 @@
       const data = new FormData(testForm);
       setButtonLoading(submit, true);
       try {
+        const saved = await saveCurrentSettings(false);
+        if (!saved.ok) {
+          if (status) status.textContent = "Fix the highlighted SMTP settings before sending a test email.";
+          return;
+        }
         const response = await fetch("/api/v1/settings/email/send-test", {
           method: "POST",
           credentials: "same-origin",
@@ -792,7 +830,7 @@
           body: JSON.stringify({ to: String(data.get("to") || "") }),
         });
         const body = await response.json().catch(() => ({}));
-        if (status) status.textContent = body.ok ? "Test email sent." : `Test email failed: ${body.error_category || "SMTP_DELIVERY_FAILED"}.`;
+        if (status) status.textContent = body.ok ? `Test email sent in ${body.duration_ms} ms.` : smtpErrorMessage(body, "Test email failed.");
       } finally {
         setButtonLoading(submit, false);
       }

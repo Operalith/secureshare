@@ -24,4 +24,5 @@ const (
 	CodeInternal                   ErrorCode = "INTERNAL_ERROR"
 	CodeDependencyUnavailable      ErrorCode = "DEPENDENCY_UNAVAILABLE"
 	CodeEmailDeliveryNotConfigured ErrorCode = "EMAIL_DELIVERY_NOT_CONFIGURED"
+	CodeSMTPConfigurationError      ErrorCode = "SMTP_CONFIGURATION_ERROR"
 )

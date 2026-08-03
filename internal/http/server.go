@@ -1151,9 +1151,6 @@ func (s *Server) preflightEmailDelivery(ctx context.Context, req emailDeliveryPl
 	if err != nil || !settings.Enabled || settings.SMTPHost == "" || settings.SMTPPort == 0 || settings.FromEmail == "" {
 		return emailPreflightNotConfigured
 	}
-	if settings.SMTPUsername != "" && !settings.PasswordConfigured {
-		return emailPreflightNotConfigured
-	}
 	if s.cfg.AppEnv == "production" && settings.EncryptionMode == secureemail.EncryptionNone {
 		return emailPreflightNotConfigured
 	}
@@ -1446,10 +1443,12 @@ func (s *Server) handleEmailSettingsActionAPI(w http.ResponseWriter, r *http.Req
 	case action == "test-connection" && r.Method == http.MethodPost:
 		result := s.email.TestConnection(r.Context())
 		eventType := "email.connection_test_succeeded"
+		auditResult := result.Result
 		if !result.OK {
 			eventType = "email.connection_test_failed"
+			auditResult = result.ErrorCategory
 		}
-		s.recordEmailAudit(r, actor, eventType, result.Result)
+		s.recordEmailAudit(r, actor, eventType, auditResult)
 		s.writeJSON(w, http.StatusOK, result)
 	case action == "send-test" && r.Method == http.MethodPost:
 		if !s.limits.EmailTest.Allow(actor.ActorID) {
@@ -1463,10 +1462,12 @@ func (s *Server) handleEmailSettingsActionAPI(w http.ResponseWriter, r *http.Req
 		}
 		result := s.email.SendTest(r.Context(), req.To)
 		eventType := "email.test_delivery_succeeded"
+		auditResult := result.Result
 		if !result.OK {
 			eventType = "email.test_delivery_failed"
+			auditResult = result.ErrorCategory
 		}
-		s.recordEmailAudit(r, actor, eventType, result.Result)
+		s.recordEmailAudit(r, actor, eventType, auditResult)
 		s.writeJSON(w, http.StatusOK, result)
 	case action == "template-preview" && r.Method == http.MethodPost:
 		var req secureemail.PreviewRequest
@@ -1934,6 +1935,19 @@ func (s *Server) writeDeliveryError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) writeEmailError(w http.ResponseWriter, err error) {
+	var validationErr *secureemail.ValidationError
+	if errors.As(err, &validationErr) {
+		status := http.StatusBadRequest
+		if errors.Is(err, secureemail.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		s.writeJSON(w, status, map[string]any{
+			"code":    delivery.CodeSMTPConfigurationError,
+			"message": "SMTP configuration is incomplete.",
+			"fields":  validationErr.Fields,
+		})
+		return
+	}
 	switch {
 	case errors.Is(err, secureemail.ErrForbidden):
 		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)

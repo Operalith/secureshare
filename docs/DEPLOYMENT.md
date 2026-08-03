@@ -29,6 +29,7 @@ docker compose --profile mailpit up -d mailpit
 ```
 
 Mailpit binds only to localhost by default and is not part of the production Compose file.
+Use SMTP host `mailpit`, port `1025`, encryption mode `none`, an empty username and password, and `secureshare@example.local` as the sender. Save or use the settings-page test actions, which persist the current form before testing. Inspect captured development messages at [http://localhost:8025](http://localhost:8025). Production rejects `none`.
 
 ## Production Compose Example
 

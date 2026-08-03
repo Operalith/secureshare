@@ -542,6 +542,57 @@ func TestEmailSettingsAPIRedactsPasswordAndRequiresAdmin(t *testing.T) {
 	}
 }
 
+func TestSMTPConfigurationResponsesAreSafeAndFieldSpecific(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+
+	connectionReq := httptest.NewRequest(http.MethodPost, "/api/v1/settings/email/test-connection", strings.NewReader(`{}`))
+	connectionReq.Header.Set("Content-Type", "application/json")
+	connectionReq.Header.Set("X-CSRF-Token", csrf)
+	connectionReq.AddCookie(cookie)
+	connectionRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(connectionRec, connectionReq)
+	if connectionRec.Code != http.StatusOK {
+		t.Fatalf("missing SMTP connection test = %d, want 200: %s", connectionRec.Code, connectionRec.Body.String())
+	}
+	for _, want := range []string{`"code":"SMTP_CONFIGURATION_ERROR"`, `"smtp_host":"SMTP host is required."`, `"from_email":"A valid sender email is required."`} {
+		if !strings.Contains(connectionRec.Body.String(), want) {
+			t.Fatalf("safe connection response missing %s: %s", want, connectionRec.Body.String())
+		}
+	}
+
+	invalidPayload := `{"enabled":true,"smtp_host":"https://bad host","smtp_port":70000,"encryption_mode":"starttls","smtp_username":"smtp-user","smtp_password":"smtp-redaction-canary","from_email":"not-an-email","connection_timeout_seconds":5,"send_timeout_seconds":10,"default_subject":"Subject","default_message":"Message {{secure_link}}"}`
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/email", strings.NewReader(invalidPayload))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.Header.Set("X-CSRF-Token", csrf)
+	updateReq.AddCookie(cookie)
+	updateRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid SMTP update = %d, want 400: %s", updateRec.Code, updateRec.Body.String())
+	}
+	for _, want := range []string{`"code":"SMTP_CONFIGURATION_ERROR"`, `"smtp_host"`, `"smtp_port"`, `"from_email"`} {
+		if !strings.Contains(updateRec.Body.String(), want) {
+			t.Fatalf("safe update response missing %s: %s", want, updateRec.Body.String())
+		}
+	}
+	for _, forbidden := range []string{"smtp-redaction-canary", "https://bad host", "not-an-email", "vault:v1:", "stack"} {
+		if strings.Contains(updateRec.Body.String(), forbidden) {
+			t.Fatalf("safe update response leaked %q: %s", forbidden, updateRec.Body.String())
+		}
+	}
+
+	javascript, err := os.ReadFile("../../web/static/admin.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"saveCurrentSettings(false)", "smtpErrorMessage(body", `setAttribute("aria-invalid", "true")`} {
+		if !strings.Contains(string(javascript), want) {
+			t.Fatalf("SMTP UI lifecycle missing %q", want)
+		}
+	}
+}
+
 func TestEmailSettingsProductionRejectsUnencryptedSMTP(t *testing.T) {
 	app := testServerWithConfig(func(cfg *config.Config) {
 		cfg.AppEnv = "production"

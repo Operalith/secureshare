@@ -480,6 +480,7 @@ paths:
       description: >
         Admin-only. `smtp_password` is write-only and encrypted with Vault Transit before storage.
         Empty `smtp_password` preserves the existing password unless `clear_smtp_password=true`.
+        Invalid settings return `SMTP_CONFIGURATION_ERROR` with safe field-level guidance.
       security:
         - LegacyAdminBearer: []
         - CookieSession: []
@@ -497,14 +498,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/EmailSettings'
         '400':
-          $ref: '#/components/responses/InvalidRequest'
+          description: Safe SMTP field validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailErrorResponse'
         '403':
           $ref: '#/components/responses/Forbidden'
   /api/v1/settings/email/test-connection:
     post:
       tags: [Email Settings]
       summary: Test SMTP connection
-      description: Admin-only. Validates DNS/TCP/TLS or STARTTLS/authentication without sending email.
+      description: Admin-only. Tests the persisted singleton settings and validates DNS/TCP/TLS or STARTTLS/authentication without sending email. The browser settings page saves current form values before invoking this action.
       security:
         - LegacyAdminBearer: []
         - CookieSession: []
@@ -519,7 +524,7 @@ paths:
     post:
       tags: [Email Settings]
       summary: Send safe SMTP test email
-      description: Admin-only and rate-limited to 5 per 15 minutes per admin. The message contains no secrets or one-time links.
+      description: Admin-only and rate-limited to 5 per 15 minutes per admin. Uses persisted singleton settings; the browser settings page saves current form values first. The message contains no secrets or one-time links.
       security:
         - LegacyAdminBearer: []
         - CookieSession: []
@@ -1622,6 +1627,18 @@ components:
         error_category:
           type: string
           enum: [SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED]
+        code:
+          type: string
+          description: Stable safe error code. Present when `ok=false` and equal to `error_category`.
+          enum: [SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED]
+        message:
+          type: string
+          description: Safe operator-facing message without raw SMTP, Vault, SQL, network, or credential details.
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+          description: Safe field-level guidance for `SMTP_CONFIGURATION_ERROR`.
         encryption_mode:
           type: string
           enum: [starttls, tls, none]
@@ -1801,6 +1818,12 @@ components:
     EmailErrorResponse:
       allOf:
         - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            fields:
+              type: object
+              additionalProperties:
+                type: string
       description: Stable email configuration, preflight, or SMTP delivery error category. Raw SMTP server responses are not returned.
     HealthResponse:
       type: object

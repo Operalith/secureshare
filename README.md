@@ -156,6 +156,7 @@ docker compose --profile mailpit up -d mailpit
 ```
 
 Mailpit is development-only and is not present in the production Compose file.
+Configure `/admin/settings/email` with host `mailpit`, port `1025`, encryption `none`, empty username/password, and sender `secureshare@example.local`. The settings page persists current form values before Test Connection or Send Test Email; Mailpit captures messages at [http://localhost:8025](http://localhost:8025). Unencrypted SMTP is rejected in production.
 
 The security test covers unauthorized create, invalid login, CSRF rejection, payload limits, invalid content types, first and second consume, concurrent consume, expired and revoked links, password throttling, security headers, cache prevention, and log leakage checks.
 

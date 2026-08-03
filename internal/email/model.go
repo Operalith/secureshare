@@ -26,6 +26,29 @@ var (
 	ErrDependency    = errors.New("email dependency unavailable")
 )
 
+const (
+	CategoryConfigurationError   = "SMTP_CONFIGURATION_ERROR"
+	CategoryConnectionFailed     = "SMTP_CONNECTION_FAILED"
+	CategoryTLSFailed            = "SMTP_TLS_FAILED"
+	CategoryAuthenticationFailed = "SMTP_AUTHENTICATION_FAILED"
+	CategoryRecipientRejected    = "SMTP_RECIPIENT_REJECTED"
+	CategoryTimeout              = "SMTP_TIMEOUT"
+	CategoryDeliveryFailed       = "SMTP_DELIVERY_FAILED"
+)
+
+type ValidationError struct {
+	Cause  error
+	Fields map[string]string
+}
+
+func (e *ValidationError) Error() string {
+	return "SMTP configuration is incomplete"
+}
+
+func (e *ValidationError) Unwrap() error {
+	return e.Cause
+}
+
 type Settings struct {
 	ID                       uuid.UUID  `json:"id"`
 	Enabled                  bool       `json:"enabled"`
@@ -77,11 +100,14 @@ type UpdateResult struct {
 }
 
 type ConnectionTestResult struct {
-	OK             bool   `json:"ok"`
-	Result         string `json:"result"`
-	ErrorCategory  string `json:"error_category,omitempty"`
-	EncryptionMode string `json:"encryption_mode"`
-	DurationMS     int64  `json:"duration_ms"`
+	OK             bool              `json:"ok"`
+	Result         string            `json:"result"`
+	ErrorCategory  string            `json:"error_category,omitempty"`
+	Code           string            `json:"code,omitempty"`
+	Message        string            `json:"message,omitempty"`
+	Fields         map[string]string `json:"fields,omitempty"`
+	EncryptionMode string            `json:"encryption_mode"`
+	DurationMS     int64             `json:"duration_ms"`
 }
 
 type SendTestRequest struct {
