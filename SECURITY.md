@@ -89,6 +89,10 @@ HTTPS and HSTS are mandatory in production.
 
 Swagger UI is served from local assets only. It disables persisted authorization, does not prefill API client credentials, and uses the authenticated `/openapi.yaml` endpoint unless `OPENAPI_PUBLIC=true`.
 
+Navigation visibility follows the session permission map but is not an authorization boundary. Every protected page and state-changing endpoint independently enforces its backend permission; authenticated forbidden pages return a 403 shell without exposing unauthorized items.
+
+Browser regression tests use disposable QA identities and failure-only artifacts. Authenticated storage state, screenshots, traces, reports, and Node dependencies are Git-ignored and must never be published or attached without a redaction review.
+
 ## Admin Users, Session and CSRF
 
 The browser admin UI uses local PostgreSQL users and opaque HTTP-only SameSite cookies. Only a keyed session-token hash is stored in PostgreSQL. Session TTL, idle timeout, secure cookie behavior, and CSRF signing are configured with `SESSION_TTL`, `SESSION_IDLE_TIMEOUT`, `COOKIE_SECURE`, and `CSRF_SECRET`.

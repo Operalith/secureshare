@@ -124,6 +124,10 @@ docker compose --profile observability up -d prometheus
 
 The wrapper removes containers and volumes after each run, including failed runs. Development data, SMTP settings, dashboard counts, and audit timeline are not used by automated tests. Use `SECURESHARE_CONFIRM_DEV_RESET=reset-dev-data make dev-reset-data` only for local development cleanup; it preserves users, API clients, and encrypted SMTP settings.
 
+`make ui-e2e` uses a separate `secureshare_ui_e2e` Compose project, app port `18081`, PostgreSQL port `15433`, Vault port `18201`, and Mailpit ports `11026`/`18026`. The dedicated `tests/e2e` workspace pins Playwright and runs against a locally installed Chrome channel; Playwright and Node are not added to the application image. It creates only synthetic `example.local` users and fixture metadata, asserts development data was not touched, and removes its disposable volumes and temporary authenticated state on exit. Failure-only artifacts are stored under the Git-ignored `artifacts/ui-e2e` directory.
+
+Use `docs/UI_QA_CHECKLIST.md` for the role, route, viewport, console/network, accessibility, and redaction matrix.
+
 ## Logging
 
 Logs are JSON through `slog`. They include request ID, method, path, status, latency, and keyed IP hash. They do not include request bodies, response bodies, raw tokens, passwords, API keys, Authorization headers, full secret URLs, SMTP passwords, recipient emails, raw SMTP responses, or rendered email bodies.

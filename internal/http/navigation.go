@@ -15,6 +15,7 @@ type NavigationItem struct {
 	Icon                string
 	Group               string
 	Order               int
+	Public              bool
 	RequiredPermissions []string
 	MatchPatterns       []string
 	Active              bool
@@ -40,7 +41,7 @@ var navigationItems = []NavigationItem{
 	{ID: "users", Label: "Users", URL: "/admin/users", Icon: "users", Group: "access", Order: 20, RequiredPermissions: []string{"user:manage"}, MatchPatterns: []string{"=/admin/users", "^/admin/users/"}},
 	{ID: "email-settings", Label: "Email Settings", URL: "/admin/settings/email", Icon: "mail", Group: "settings", Order: 10, RequiredPermissions: []string{"email-settings:manage"}, MatchPatterns: []string{"=/admin/settings/email"}},
 	{ID: "system-status", Label: "System Status", URL: "/admin/status", Icon: "status", Group: "settings", Order: 20, RequiredPermissions: []string{"system:read"}, MatchPatterns: []string{"=/admin/status", "=/admin/system"}},
-	{ID: "api-docs", Label: "API Documentation", URL: "/docs", Icon: "book", Group: "resources", Order: 10, RequiredPermissions: []string{"api-docs:read"}, MatchPatterns: []string{"=/docs"}},
+	{ID: "api-docs", Label: "API Documentation", URL: "/docs", Icon: "book", Group: "resources", Order: 10, Public: true, RequiredPermissions: []string{"api-docs:read"}, MatchPatterns: []string{"=/docs"}},
 	{ID: "help", Label: "Help", URL: "/admin/help", Icon: "help", Group: "resources", Order: 20, RequiredPermissions: []string{"api-docs:read"}, MatchPatterns: []string{"=/admin/help"}},
 	{ID: "account", Label: "Account", URL: "/admin/account", Icon: "account", Group: "account", Order: 10, RequiredPermissions: []string{"account:manage"}, MatchPatterns: []string{"=/admin/account"}},
 }
@@ -57,6 +58,9 @@ func buildNavigation(cfg config.Config, session auth.Session, path string) Navig
 	itemsByGroup := make(map[string][]NavigationItem)
 	model := NavigationModel{}
 	for _, definition := range navigationItems {
+		if session.Role == "public" && !definition.Public {
+			continue
+		}
 		if !navigationItemAvailable(cfg, definition) || !hasRequiredPermissions(session.Permissions, definition.RequiredPermissions) {
 			continue
 		}

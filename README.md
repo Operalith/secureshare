@@ -123,6 +123,8 @@ Open the returned `url` in a browser. The recipient page strips the fragment fro
 - Swagger UI: `http://localhost:8080/docs`
 - Raw OpenAPI: `http://localhost:8080/openapi.yaml`
 - Developer guide: `docs/DEVELOPER_GUIDE.md`
+- UI architecture: `docs/UI_ARCHITECTURE.md`
+- UI QA checklist: `docs/UI_QA_CHECKLIST.md`
 - Examples: `examples/curl/`, `examples/go/`, `examples/python/`, `examples/javascript/`
 - Postman collection: `docs/postman/`
 
@@ -151,9 +153,12 @@ make openapi-validate
 make smoke
 make integration-test
 make security-test
+make qa-test
+make ui-navigation-test
+make ui-e2e
 ```
 
-`make smoke`, `make integration-test`, and `make security-test` run against an isolated Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit on local-only ports. The wrapper tears the test stack and volumes down after each run so automated tests do not pollute the development dashboard or audit timeline.
+`make smoke`, `make integration-test`, `make security-test`, and `make qa-test` run against an isolated Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit on local-only ports. `make ui-e2e` adds pinned Playwright navigation coverage with disposable admin, developer, and viewer fixtures. The wrappers tear test stacks and volumes down after each run so automated tests do not pollute the development dashboard or audit timeline. Failure screenshots, traces, reports, authenticated state, and Node dependencies are Git-ignored.
 
 For optional development SMTP capture:
 

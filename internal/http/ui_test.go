@@ -532,6 +532,7 @@ func TestOpenAPIPublicModeDoesNotRenderAdminIdentity(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "Logout") || strings.Contains(rec.Body.String(), "user-pill\">admin") {
 		t.Fatalf("public docs rendered authenticated admin chrome: %s", rec.Body.String())
 	}
+	assertNavigationHTML(t, rec.Body.String(), []string{"api-docs"}, "api-docs")
 
 	specRec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(specRec, httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil))

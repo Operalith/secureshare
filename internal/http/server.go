@@ -353,10 +353,10 @@ func (s *Server) handleDocsPage(w http.ResponseWriter, r *http.Request) {
 		"Permissions":   permissionsMap([]string{"api-docs:read"}),
 		"OpenAPIPublic": s.cfg.OpenAPIPublic,
 		"Authenticated": false,
-		"Navigation": NavigationModel{Groups: []NavigationGroup{{
-			ID: "resources", Label: "Resources", Order: 40,
-			Items: []NavigationItem{{ID: "api-docs", Label: "API Documentation", URL: "/docs", Icon: "book", Group: "resources", Order: 10, Active: true}},
-		}}},
+		"Navigation": buildNavigation(s.cfg, auth.Session{
+			Role:        "public",
+			Permissions: permissionsMap([]string{"api-docs:read"}),
+		}, r.URL.Path),
 	}
 	if _, ok := s.auth.FromRequest(r); ok {
 		data = s.adminData(r, map[string]any{"Title": "API Docs", "OpenAPIPublic": s.cfg.OpenAPIPublic})

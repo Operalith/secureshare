@@ -41,6 +41,12 @@ flowchart TB
   S --> M
 ```
 
+## Authenticated UI Shell
+
+The Go server builds protected-page navigation from the single item registry in `internal/http/navigation.go`. It filters items with the permission map already enforced by route handlers, applies stable group/item ordering, and resolves active state with exact and explicit prefix patterns. Configuration hides API Documentation only when Swagger UI itself is disabled; dependency or SMTP readiness never changes navigation.
+
+All protected templates, including authenticated 403, 404, and safe 500 responses, render the sidebar and header definitions in `web/templates/_shell.html`. Desktop and mobile share one server-generated navigation DOM; CSS and `web/static/admin.js` turn it into the mobile drawer without constructing another menu. See `docs/UI_ARCHITECTURE.md` for the item model and extension rules.
+
 ## Create Flow
 
 ```mermaid
