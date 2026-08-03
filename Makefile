@@ -1,4 +1,4 @@
-.PHONY: up down build test integration-test smoke security-test ui-time-test test-stack-up test-stack-down dev-reset-data openapi-validate logs clean fmt lint
+.PHONY: up down build test integration-test smoke security-test qa-test ui-time-test test-stack-up test-stack-down dev-reset-data openapi-validate logs clean fmt lint
 
 up:
 	docker compose up -d --build
@@ -20,6 +20,9 @@ smoke:
 
 security-test:
 	./scripts/run-isolated-test.sh security ./scripts/security-test.sh
+
+qa-test:
+	./scripts/run-isolated-test.sh qa ./scripts/qa-regression-test.sh
 
 ui-time-test:
 	node scripts/time-formatter-test.js
