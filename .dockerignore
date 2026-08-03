@@ -3,3 +3,8 @@
 secureshare
 tmp
 *.log
+artifacts
+tests/e2e/.auth
+tests/e2e/node_modules
+tests/e2e/test-results
+tests/e2e/playwright-report

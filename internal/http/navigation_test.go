@@ -250,6 +250,24 @@ func TestProtectedPagesUseOneResponsiveShellAndLocalAssets(t *testing.T) {
 	}
 }
 
+func TestViewerPagesDoNotRenderCreateOrRevokeControls(t *testing.T) {
+	app := testServer()
+	createNavigationTestUser(t, app, "readonly", auth.RoleViewer)
+	cookie, _ := loginSession(t, app, "readonly", "readonly-passphrase")
+	for _, path := range []string{"/admin", "/admin/secrets", "/admin/secrets/" + testUUID.String()} {
+		response := authenticatedPage(t, app, cookie, path)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", path, response.Code)
+		}
+		body := response.Body.String()
+		for _, forbidden := range []string{`href="/admin/secrets/new"`, "data-revoke-id", "data-confirm-dialog"} {
+			if strings.Contains(body, forbidden) {
+				t.Errorf("viewer GET %s rendered forbidden control %q", path, forbidden)
+			}
+		}
+	}
+}
+
 func navigationSession(role string) auth.Session {
 	return auth.Session{Role: role, Permissions: permissionsMap(auth.PermissionsForRole(role))}
 }

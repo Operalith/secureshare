@@ -146,6 +146,7 @@ func openAPIPath() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir()))))
+	mux.Handle("/favicon.ico", http.RedirectHandler("/static/swagger-ui/favicon-32x32.png", http.StatusTemporaryRedirect))
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/docs", s.handleDocsPage)
 	mux.HandleFunc("/openapi.yaml", s.handleOpenAPISpec)

@@ -21,7 +21,7 @@
             <h2>Dashboard</h2>
             <p>Monitor link lifecycle, dependency health, and the latest safe audit activity.</p>
           </div>
-          <a class="button-link" href="/admin/secrets/new">Create secret</a>
+          {{ if hasPermission .Permissions "secret:create" }}<a class="button-link" href="/admin/secrets/new">Create secret</a>{{ end }}
         </section>
 
         <section class="metric-grid" aria-label="Secret delivery metrics">
