@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -189,6 +190,64 @@ func TestNavigationFeatureAvailabilityAndValidationFailures(t *testing.T) {
 	}
 	response = authenticatedPage(t, app, cookie, "/admin")
 	assertNavigationHTML(t, response.Body.String(), want, "dashboard")
+}
+
+func TestProtectedPagesUseOneResponsiveShellAndLocalAssets(t *testing.T) {
+	app := testServer()
+	cookie := loginCookie(t, app)
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/account", "/admin/status", "/admin/help", "/docs", "/missing-authenticated-page", "/error"} {
+		response := authenticatedPage(t, app, cookie, path)
+		body := response.Body.String()
+		for marker, want := range map[string]int{
+			`id="app-sidebar"`:     1,
+			`data-navigation`:      1,
+			`data-menu-toggle`:     1,
+			`data-nav-backdrop`:    1,
+			`id="main-content"`:    1,
+			`action="/logout"`:     1,
+			`data-user-menu`:       1,
+			`href="#main-content"`: 1,
+		} {
+			if got := strings.Count(body, marker); got != want {
+				t.Errorf("GET %s marker %q count = %d, want %d", path, marker, got, want)
+			}
+		}
+		if !strings.Contains(body, `aria-current="page"`) && path != "/missing-authenticated-page" && path != "/error" {
+			t.Errorf("GET %s has no accessible active navigation item", path)
+		}
+	}
+
+	shellBytes, err := os.ReadFile("../../web/templates/_shell.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell := string(shellBytes)
+	for _, want := range []string{"nav-group", "sidebar-account", "data-menu-close", "data-nav-backdrop", `aria-current="page"`, `role="menu"`, "Skip to main content"} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("shared shell missing %q", want)
+		}
+	}
+	if strings.Count(shell, `action="/logout"`) != 1 {
+		t.Fatal("shared shell must render exactly one logout action")
+	}
+
+	cssBytes, err := os.ReadFile("../../web/static/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(cssBytes)
+	for _, want := range []string{"--sidebar-width: 252px", "height: 100dvh", "overflow-y: auto", "scrollbar-gutter: stable", "body.navigation-open", ".sidebar.open + .nav-backdrop", "width: min(1520px", "text-overflow: ellipsis"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("responsive shell CSS missing %q", want)
+		}
+	}
+	for _, asset := range []string{"/static/styles.css", "/static/admin.js", "/static/time.js", "/static/swagger-ui/swagger-ui.css", "/static/swagger-ui/swagger-ui-bundle.js"} {
+		response := httptest.NewRecorder()
+		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, asset, nil))
+		if response.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", asset, response.Code)
+		}
+	}
 }
 
 func navigationSession(role string) auth.Session {

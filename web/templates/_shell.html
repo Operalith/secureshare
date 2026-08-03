@@ -1,9 +1,13 @@
 {{ define "app-sidebar" }}
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <aside id="app-sidebar" class="sidebar" data-sidebar aria-label="SecureShare workspace">
-  <a class="sidebar-brand" href="/admin">
-    <span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span>
-    <span>SecureShare</span>
-  </a>
+  <div class="sidebar-brand-row">
+    <a class="sidebar-brand" href="/admin">
+      <span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span>
+      <span>SecureShare</span>
+    </a>
+    <button type="button" class="icon-button ghost sidebar-close" data-menu-close aria-label="Close navigation"><span aria-hidden="true">×</span></button>
+  </div>
   <nav class="sidebar-nav" aria-label="Application navigation" data-navigation>
     {{ range .Navigation.Groups }}
     <section class="nav-group" data-nav-group="{{ .ID }}">
@@ -23,6 +27,7 @@
   </div>
   {{ end }}
 </aside>
+<button type="button" class="nav-backdrop" data-nav-backdrop aria-label="Close navigation" tabindex="-1"></button>
 {{ end }}
 
 {{ define "app-header" }}
@@ -32,9 +37,15 @@
   <div class="header-actions">
     <span class="env-pill">{{ .Env }}</span>
     {{ if .Authenticated }}
-    <span class="user-pill">{{ .ActorID }} · {{ .Role }}</span>
-    <button type="button" class="ghost compact" data-theme-toggle>Theme</button>
-    <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form>
+    <button type="button" class="ghost compact theme-control" data-theme-toggle aria-label="Switch color theme">Theme</button>
+    <details class="user-menu" data-user-menu>
+      <summary class="user-pill" aria-label="Open user menu"><span class="user-menu-name">{{ .ActorID }}</span><span aria-hidden="true">▾</span></summary>
+      <div class="user-menu-panel" role="menu">
+        <span class="user-menu-role">Role: <strong>{{ .Role }}</strong></span>
+        <a href="/admin/account" role="menuitem">Account</a>
+        <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact" role="menuitem">Logout</button></form>
+      </div>
+    </details>
     {{ else }}
     <a class="button-link secondary-link compact" href="/login">Sign in</a>
     {{ end }}

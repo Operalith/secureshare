@@ -228,6 +228,7 @@ func TestNoExternalAssetsOrBrowserStorageUsage(t *testing.T) {
 		"../../web/templates/status.html",
 		"../../web/templates/help.html",
 		"../../web/templates/error.html",
+		"../../web/templates/_shell.html",
 		"../../web/static/admin.js",
 		"../../web/static/reveal.js",
 		"../../web/static/time.js",

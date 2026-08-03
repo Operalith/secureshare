@@ -1,4 +1,4 @@
-.PHONY: up down build test integration-test smoke security-test qa-test ui-time-test test-stack-up test-stack-down dev-reset-data openapi-validate logs clean fmt lint
+.PHONY: up down build test integration-test smoke security-test qa-test ui-time-test ui-navigation-test test-stack-up test-stack-down dev-reset-data openapi-validate logs clean fmt lint
 
 up:
 	docker compose up -d --build
@@ -26,6 +26,9 @@ qa-test:
 
 ui-time-test:
 	node scripts/time-formatter-test.js
+
+ui-navigation-test:
+	node scripts/navigation-interaction-test.js
 
 test-stack-up:
 	TEST_APP_PORT=18080 TEST_POSTGRES_PORT=15432 TEST_VAULT_PORT=18200 MAILPIT_SMTP_PORT=11025 MAILPIT_WEB_PORT=18025 docker compose -p secureshare_test --profile test up -d --build app-test mailpit

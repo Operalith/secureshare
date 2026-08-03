@@ -61,12 +61,71 @@
 
   function setupNavigation() {
     const sidebar = qs("[data-sidebar]");
-    qsa("[data-menu-toggle]").forEach((button) => {
-      button.addEventListener("click", () => sidebar?.classList.toggle("open"));
+    const backdrop = qs("[data-nav-backdrop]");
+    const openers = qsa("[data-menu-toggle]");
+    const closeButtons = qsa("[data-menu-close]");
+    const mobileViewport = window.matchMedia("(max-width: 820px)");
+    let lastOpener = null;
+
+    if (!sidebar) return;
+
+    const focusableElements = () => qsa('a[href], button:not([disabled]), summary, input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', sidebar)
+      .filter((element) => !element.hasAttribute("hidden"));
+
+    const setOpen = (open, returnFocus = true) => {
+      const shouldOpen = open && mobileViewport.matches;
+      sidebar.classList.toggle("open", shouldOpen);
+      document.body.classList.toggle("navigation-open", shouldOpen);
+      openers.forEach((button) => button.setAttribute("aria-expanded", String(shouldOpen)));
+      if (shouldOpen) {
+        (qs("[data-menu-close]", sidebar) || focusableElements()[0])?.focus();
+      } else if (returnFocus && lastOpener) {
+        lastOpener.focus();
+      }
+    };
+
+    openers.forEach((button) => {
+      button.addEventListener("click", () => {
+        lastOpener = button;
+        setOpen(!sidebar.classList.contains("open"));
+      });
     });
+    closeButtons.forEach((button) => button.addEventListener("click", () => setOpen(false)));
+    backdrop?.addEventListener("click", () => setOpen(false));
+    qsa("a[href]", sidebar).forEach((link) => link.addEventListener("click", () => setOpen(false, false)));
+
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") sidebar?.classList.remove("open");
+      if (event.key === "Escape") {
+        qsa("[data-user-menu][open]").forEach((menu) => menu.removeAttribute("open"));
+        if (sidebar.classList.contains("open")) {
+          event.preventDefault();
+          setOpen(false);
+        }
+        return;
+      }
+      if (event.key !== "Tab" || !mobileViewport.matches || !sidebar.classList.contains("open")) return;
+      const focusable = focusableElements();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     });
+
+    const resetForViewport = () => {
+      if (!mobileViewport.matches) setOpen(false, false);
+    };
+    if (typeof mobileViewport.addEventListener === "function") {
+      mobileViewport.addEventListener("change", resetForViewport);
+    } else {
+      mobileViewport.addListener(resetForViewport);
+    }
+    window.addEventListener("pagehide", () => setOpen(false, false));
   }
 
   function setupSecretToggles(root = document) {

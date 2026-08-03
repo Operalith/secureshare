@@ -14,7 +14,7 @@
     {{ template "app-sidebar" . }}
     <div class="workspace">
       {{ template "app-header" . }}
-      <main class="content-grid">
+      <main id="main-content" class="content-grid">
         <section class="panel form-section">
           <div class="section-heading"><div><p class="eyebrow">Safe metadata</p><h2>User profile</h2></div><span class="badge {{ if eq .User.Status "active" }}success{{ else }}danger{{ end }}">{{ .User.Status }}</span></div>
           <div class="status-list">
