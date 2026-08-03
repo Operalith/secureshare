@@ -71,7 +71,17 @@
       return;
     }
     if (body.password_required) passwordWrap.classList.remove("hidden");
-    if (body.expires_at) expiresState.textContent = `Available until ${new Date(body.expires_at).toISOString()}.`;
+    if (body.expires_at) {
+      const timeElement = document.createElement("time");
+      if (window.SecureShareTime?.render) {
+        window.SecureShareTime.render(timeElement, body.expires_at, { emptyLabel: "Invalid date" });
+      } else {
+        timeElement.textContent = body.expires_at;
+        timeElement.setAttribute("datetime", body.expires_at);
+        timeElement.setAttribute("title", body.expires_at);
+      }
+      expiresState.replaceChildren("Available until ", timeElement, ".");
+    }
     revealButton.disabled = false;
     setState("Ready to reveal. Opening this page has not consumed the secret.");
   }

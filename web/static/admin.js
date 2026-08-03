@@ -37,6 +37,17 @@
     button.disabled = false;
   }
 
+  function renderLocalTime(element, value, emptyLabel = "Never") {
+    if (!element) return;
+    if (window.SecureShareTime?.render) {
+      window.SecureShareTime.render(element, value, { emptyLabel });
+      return;
+    }
+    const raw = value === null || value === undefined ? "" : String(value);
+    element.textContent = raw || emptyLabel;
+    if (raw) element.setAttribute("title", raw);
+  }
+
   function setupTheme() {
     qsa("[data-theme-toggle]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -188,15 +199,15 @@
     function fillResult(response, payload) {
       createdID = response.id;
       createdPayload = payload;
-      const expires = new Date(response.expires_at);
       qs("#created-id").textContent = response.id;
-      qs("#created-expires").textContent = expires.toISOString();
+      renderLocalTime(qs("#created-expires"), response.expires_at, "Invalid date");
       qs("#created-lifetime").textContent = selectedLifetimeLabel();
       qs("#created-password").textContent = payload.password ? "Yes" : "No";
       qs("#created-recipient").textContent = payload.recipient_reference || "Not provided";
       qs("#created-url").value = response.url;
       const email = response.delivery?.email || { requested: false, status: "not_requested" };
       qs("#created-email-status").textContent = email.requested ? `${email.status}${email.to ? ` to ${email.to}` : ""}` : "Not requested";
+      renderLocalTime(qs("#created-email-sent"), email.sent_at, "Not sent");
       qs("#email-retry-panel")?.classList.toggle("hidden", !email.requested);
       qs("#retry-email-to").value = payload.delivery?.email?.to || "";
       qs("#retry-email-name").value = payload.delivery?.email?.recipient_name || "";

@@ -62,15 +62,11 @@ type Server struct {
 
 func New(deps Dependencies) *Server {
 	funcs := template.FuncMap{
-		"formatTime": func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
-		"formatOptionalTime": func(t *time.Time) string {
-			if t == nil {
-				return "Not recorded"
-			}
-			return t.UTC().Format(time.RFC3339)
-		},
-		"statusClass": statusClass,
-		"eventLabel":  eventLabel,
+		"localTime":           localTimeHTML,
+		"localOptionalTime":   localOptionalTimeHTML,
+		"localExpirationTime": localExpirationTimeHTML,
+		"statusClass":         statusClass,
+		"eventLabel":          eventLabel,
 		"hasPermission": func(perms map[string]bool, permission string) bool {
 			return perms[permission]
 		},
@@ -98,6 +94,29 @@ func New(deps Dependencies) *Server {
 		clients:   deps.Clients,
 		templates: templates,
 	}
+}
+
+func localTimeHTML(value time.Time) template.HTML {
+	if value.IsZero() {
+		return template.HTML(`<span data-invalid-time>Invalid date</span>`)
+	}
+	raw := value.UTC().Format(time.RFC3339Nano)
+	markup := `<time data-local-time="` + raw + `" datetime="` + raw + `" title="` + raw + `">` + raw + `</time>`
+	return template.HTML(markup)
+}
+
+func localOptionalTimeHTML(value *time.Time) template.HTML {
+	if value == nil {
+		return template.HTML("Not recorded")
+	}
+	return localTimeHTML(*value)
+}
+
+func localExpirationTimeHTML(value *time.Time) template.HTML {
+	if value == nil {
+		return template.HTML("Never")
+	}
+	return localTimeHTML(*value)
 }
 
 func templatePattern() string {

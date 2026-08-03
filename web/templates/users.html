@@ -6,6 +6,7 @@
   <title>Users - SecureShare</title>
   <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
   <script src="/static/admin.js" defer></script>
 </head>
 <body>
@@ -47,8 +48,8 @@
                   <td data-label="Email">{{ .Email }}</td>
                   <td data-label="Role"><span class="badge neutral">{{ .Role }}</span></td>
                   <td data-label="Status"><span class="badge {{ if eq .Status "active" }}success{{ else }}danger{{ end }}">{{ .Status }}</span></td>
-                  <td data-label="Last login">{{ formatOptionalTime .LastLoginAt }}</td>
-                  <td data-label="Created">{{ formatTime .CreatedAt }}</td>
+                  <td data-label="Last login">{{ localOptionalTime .LastLoginAt }}</td>
+                  <td data-label="Created">{{ localTime .CreatedAt }}</td>
                   <td data-label="Actions" class="table-actions">
                     <a href="/admin/users/{{ .ID }}">View</a>
                     {{ if eq .Status "active" }}

@@ -6,6 +6,7 @@
   <title>Email Settings - SecureShare</title>
   <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
   <script src="/static/admin.js" defer></script>
 </head>
 <body>
@@ -45,6 +46,9 @@
           <div class="section-heading">
             <div><p class="eyebrow">Transport</p><h2>SMTP configuration</h2></div>
             <span class="badge {{ if .Settings.PasswordConfigured }}success{{ else }}warning{{ end }}">{{ if .Settings.PasswordConfigured }}Password configured{{ else }}No password stored{{ end }}</span>
+          </div>
+          <div class="status-list">
+            <div><span>Settings updated</span><strong>{{ if .Settings.SMTPHost }}{{ localTime .Settings.UpdatedAt }}{{ else }}Not configured{{ end }}</strong></div>
           </div>
           <form class="form-stack" data-email-settings>
             <label class="checkbox-line"><input type="checkbox" name="enabled" {{ if .Settings.Enabled }}checked{{ end }}> Enabled</label>

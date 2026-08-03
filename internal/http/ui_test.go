@@ -69,7 +69,7 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{"data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "class=\"active\" data-delivery-mode=\"link\">Generate link only", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result"} {
+	for _, want := range []string{"/static/time.js", "data-secret-mode=\"structured\"", "data-secret-mode=\"plain\"", "class=\"active\" data-delivery-mode=\"link\">Generate link only", "Send link by email", "data-delivery-preview", "Password attempt limit", "security-summary", "created-result", "created-email-sent"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("create form missing %q", want)
 		}
@@ -80,6 +80,67 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	}
 	if !strings.Contains(string(javascript), "if (sendEmail) {\n        payload.delivery = {") {
 		t.Fatal("link-only browser submission does not omit the email delivery object")
+	}
+}
+
+func TestLocalTimeMarkupPreservesUTCFallbackAndHandlesEmptyValues(t *testing.T) {
+	value := time.Date(2026, 8, 3, 8, 30, 0, 123000000, time.FixedZone("IRST", 3*60*60+30*60))
+	markup := string(localTimeHTML(value))
+	for _, want := range []string{
+		`data-local-time="2026-08-03T05:00:00.123Z"`,
+		`datetime="2026-08-03T05:00:00.123Z"`,
+		`title="2026-08-03T05:00:00.123Z"`,
+		`>2026-08-03T05:00:00.123Z</time>`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Fatalf("local time markup missing %q: %s", want, markup)
+		}
+	}
+	if got := string(localExpirationTimeHTML(nil)); got != "Never" {
+		t.Fatalf("nil expiration = %q, want Never", got)
+	}
+	if got := string(localOptionalTimeHTML(nil)); got != "Not recorded" {
+		t.Fatalf("nil optional timestamp = %q, want Not recorded", got)
+	}
+	if got := string(localTimeHTML(time.Time{})); !strings.Contains(got, "Invalid date") {
+		t.Fatalf("zero timestamp was not handled safely: %s", got)
+	}
+}
+
+func TestAllTimestampPagesUseSharedBrowserFormatter(t *testing.T) {
+	for _, path := range []string{
+		"../../web/templates/admin.html",
+		"../../web/templates/secret_list.html",
+		"../../web/templates/secret_detail.html",
+		"../../web/templates/api_clients.html",
+		"../../web/templates/api_client_detail.html",
+		"../../web/templates/users.html",
+		"../../web/templates/user_detail.html",
+		"../../web/templates/account.html",
+		"../../web/templates/email_settings.html",
+		"../../web/templates/new_secret.html",
+		"../../web/templates/recipient.html",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		if !strings.Contains(text, `/static/time.js`) {
+			t.Fatalf("%s does not load the shared browser time formatter", path)
+		}
+		if strings.Contains(text, "formatTime") || strings.Contains(text, "formatOptionalTime") {
+			t.Fatalf("%s still uses a legacy UTC-only formatter", path)
+		}
+	}
+	formatter, err := os.ReadFile("../../web/static/time.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Intl.DateTimeFormat", `timeZoneName: "short"`, `element.setAttribute("title", raw)`, `return options.emptyLabel || "Never"`, `return options.invalidLabel || "Invalid date"`} {
+		if !strings.Contains(string(formatter), want) {
+			t.Fatalf("shared time formatter missing %q", want)
+		}
 	}
 }
 
@@ -116,6 +177,7 @@ func TestNoExternalAssetsOrBrowserStorageUsage(t *testing.T) {
 		"../../web/templates/error.html",
 		"../../web/static/admin.js",
 		"../../web/static/reveal.js",
+		"../../web/static/time.js",
 	} {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -1086,6 +1148,37 @@ func TestAPIClientManagementShowsSecretOnlyOnce(t *testing.T) {
 	}
 	if strings.Contains(detailRec.Body.String(), created.ClientSecret) || strings.Contains(detailRec.Body.String(), "client_secret") || strings.Contains(detailRec.Body.String(), "client_secret_hash") {
 		t.Fatalf("detail response leaked client secret material: %s", detailRec.Body.String())
+	}
+}
+
+func TestAPIClientTimestampsStayUTCWhileUIPreservesLocalFormattingHooks(t *testing.T) {
+	app := testServer()
+	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
+	created, raw := createAPIClientViaHTTP(t, app, cookie, csrf, "Timezone client", []string{"secret:create"}, "2026-08-03T12:00:00+03:30")
+	if created.ExpiresAt == nil || !strings.Contains(raw, `"expires_at":"2026-08-03T08:30:00Z"`) {
+		t.Fatalf("API client create did not preserve UTC API timestamp: %s", raw)
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/admin/api-clients/"+created.ID.String(), nil)
+	detailReq.AddCookie(cookie)
+	detailRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("API client detail = %d, want 200: %s", detailRec.Code, detailRec.Body.String())
+	}
+	for _, want := range []string{`data-local-time="2026-08-03T08:30:00Z"`, `title="2026-08-03T08:30:00Z"`} {
+		if !strings.Contains(detailRec.Body.String(), want) {
+			t.Fatalf("API client detail missing %q: %s", want, detailRec.Body.String())
+		}
+	}
+
+	createAPIClientViaHTTP(t, app, cookie, csrf, "Never expires client", []string{"secret:create"}, "")
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api-clients", nil)
+	listReq.AddCookie(cookie)
+	listRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `data-label="Expires">Never</td>`) {
+		t.Fatalf("API client list did not render null expiration as Never: %s", listRec.Body.String())
 	}
 }
 

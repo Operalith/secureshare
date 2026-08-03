@@ -6,6 +6,7 @@
   <title>User Detail - SecureShare</title>
   <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
   <script src="/static/admin.js" defer></script>
 </head>
 <body>
@@ -23,6 +24,12 @@
       <main class="content-grid">
         <section class="panel form-section">
           <div class="section-heading"><div><p class="eyebrow">Safe metadata</p><h2>User profile</h2></div><span class="badge {{ if eq .User.Status "active" }}success{{ else }}danger{{ end }}">{{ .User.Status }}</span></div>
+          <div class="status-list">
+            <div><span>Last login</span><strong>{{ localOptionalTime .User.LastLoginAt }}</strong></div>
+            <div><span>Password changed</span><strong>{{ localOptionalTime .User.PasswordChangedAt }}</strong></div>
+            <div><span>Created</span><strong>{{ localTime .User.CreatedAt }}</strong></div>
+            <div><span>Updated</span><strong>{{ localTime .User.UpdatedAt }}</strong></div>
+          </div>
           <form class="form-grid" data-user-update data-user-id="{{ .User.ID }}">
             <label>Username<input name="username" value="{{ .User.Username }}" maxlength="100" required></label>
             <label>Email<input type="email" name="email" value="{{ .User.Email }}" maxlength="255" required></label>

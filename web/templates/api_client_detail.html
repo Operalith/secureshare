@@ -6,6 +6,7 @@
   <title>API Client Detail - SecureShare</title>
   <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
   <script src="/static/admin.js" defer></script>
 </head>
 <body>
@@ -31,10 +32,10 @@
             <div><span>Client ID</span><strong class="technical-value">{{ .Client.ClientID }}</strong></div>
             <div><span>Owner user</span><strong class="technical-value">{{ if .Client.OwnerUserID }}{{ .Client.OwnerUserID }}{{ else }}Not recorded{{ end }}</strong></div>
             <div><span>Scopes</span><strong class="scope-list">{{ range .Client.Scopes }}<span class="badge neutral technical-value">{{ . }}</span>{{ end }}</strong></div>
-            <div><span>Last used</span><strong>{{ formatOptionalTime .Client.LastUsedAt }}</strong></div>
-            <div><span>Expires</span><strong>{{ formatOptionalTime .Client.ExpiresAt }}</strong></div>
-            <div><span>Created</span><strong>{{ formatTime .Client.CreatedAt }}</strong></div>
-            <div><span>Updated</span><strong>{{ formatTime .Client.UpdatedAt }}</strong></div>
+            <div><span>Last used</span><strong>{{ localOptionalTime .Client.LastUsedAt }}</strong></div>
+            <div><span>Expires</span><strong>{{ localExpirationTime .Client.ExpiresAt }}</strong></div>
+            <div><span>Created</span><strong>{{ localTime .Client.CreatedAt }}</strong></div>
+            <div><span>Updated</span><strong>{{ localTime .Client.UpdatedAt }}</strong></div>
           </div>
           <div class="actions action-row">
             {{ if eq .Client.Status "active" }}

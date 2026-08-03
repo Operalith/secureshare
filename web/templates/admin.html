@@ -6,6 +6,7 @@
   <title>Dashboard - SecureShare</title>
   <meta name="csrf-token" content="{{ .CSRFToken }}">
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
   <script src="/static/admin.js" defer></script>
 </head>
 <body>
@@ -99,7 +100,7 @@
                 <div>
                   <strong>{{ eventLabel .Type }}</strong>
                   <span>{{ if .Title }}{{ .Title }}{{ else }}Untitled secret{{ end }} · {{ shortID .DeliveryID }}</span>
-                  <time>{{ formatTime .OccurredAt }}</time>
+                  {{ localTime .OccurredAt }}
                 </div>
               </li>
               {{ end }}
