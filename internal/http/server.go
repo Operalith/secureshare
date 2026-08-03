@@ -156,6 +156,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/secrets/new", s.handleNewSecretPage)
 	mux.HandleFunc("/admin/secrets/", s.handleSecretPage)
 	mux.HandleFunc("/admin/status", s.handleStatusPage)
+	mux.HandleFunc("/admin/system", s.handleStatusPage)
 	mux.HandleFunc("/admin/help", s.handleHelpPage)
 	mux.HandleFunc("/admin/users", s.handleUsersPage)
 	mux.HandleFunc("/admin/users/new", s.handleNewUserPage)
@@ -200,6 +201,10 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
+		if session, ok := s.auth.FromRequest(r); ok {
+			s.renderAuthenticatedError(w, r, session, http.StatusNotFound, "Page not found", "The requested page does not exist.")
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -220,6 +225,10 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/admin" {
+		if session, ok := s.auth.FromRequest(r); ok {
+			s.renderAuthenticatedError(w, r, session, http.StatusNotFound, "Page not found", "The requested page does not exist.")
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -275,12 +284,12 @@ func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
 	idText := strings.TrimPrefix(r.URL.Path, "/admin/secrets/")
 	id, err := uuid.Parse(idText)
 	if err != nil {
-		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "Secret metadata is unavailable."})
+		s.renderPageError(w, r, http.StatusNotFound, "Unavailable", "Secret metadata is unavailable.")
 		return
 	}
 	meta, err := s.delivery.Metadata(r.Context(), id)
 	if err != nil {
-		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "Secret metadata is unavailable."})
+		s.renderPageError(w, r, http.StatusNotFound, "Unavailable", "Secret metadata is unavailable.")
 		return
 	}
 	events, err := s.delivery.RecentActivity(r.Context(), 20)
@@ -297,6 +306,10 @@ func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/status" && r.URL.Path != "/admin/system" {
+		s.renderPageError(w, r, http.StatusNotFound, "Page not found", "The requested page does not exist.")
+		return
+	}
 	if !s.requirePage(w, r, "system:read") {
 		return
 	}
@@ -338,6 +351,11 @@ func (s *Server) handleDocsPage(w http.ResponseWriter, r *http.Request) {
 		"Role":          "public",
 		"Permissions":   permissionsMap([]string{"api-docs:read"}),
 		"OpenAPIPublic": s.cfg.OpenAPIPublic,
+		"Authenticated": false,
+		"Navigation": NavigationModel{Groups: []NavigationGroup{{
+			ID: "resources", Label: "Resources", Order: 40,
+			Items: []NavigationItem{{ID: "api-docs", Label: "API Documentation", URL: "/docs", Icon: "book", Group: "resources", Order: 10, Active: true}},
+		}}},
 	}
 	if _, ok := s.auth.FromRequest(r); ok {
 		data = s.adminData(r, map[string]any{"Title": "API Docs", "OpenAPIPublic": s.cfg.OpenAPIPublic})
@@ -400,12 +418,12 @@ func (s *Server) handleUserDetailPage(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := uuid.Parse(strings.TrimPrefix(r.URL.Path, "/admin/users/"))
 	if err != nil {
-		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "User metadata is unavailable."})
+		s.renderPageError(w, r, http.StatusNotFound, "Unavailable", "User metadata is unavailable.")
 		return
 	}
 	user, err := s.users.UserByID(r.Context(), id)
 	if err != nil {
-		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "User metadata is unavailable."})
+		s.renderPageError(w, r, http.StatusNotFound, "Unavailable", "User metadata is unavailable.")
 		return
 	}
 	s.render(w, "user_detail.html", s.adminData(r, map[string]any{"Title": "User Detail", "User": user}))
@@ -466,12 +484,12 @@ func (s *Server) handleAPIClientDetailPage(w http.ResponseWriter, r *http.Reques
 	}
 	id, err := uuid.Parse(strings.TrimPrefix(r.URL.Path, "/admin/api-clients/"))
 	if err != nil {
-		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "API client metadata is unavailable."})
+		s.renderPageError(w, r, http.StatusNotFound, "Unavailable", "API client metadata is unavailable.")
 		return
 	}
 	client, err := s.clients.APIClientByID(r.Context(), id)
 	if err != nil {
-		s.render(w, "error.html", map[string]any{"Title": "Unavailable", "Message": "API client metadata is unavailable."})
+		s.renderPageError(w, r, http.StatusNotFound, "Unavailable", "API client metadata is unavailable.")
 		return
 	}
 	s.render(w, "api_client_detail.html", s.adminData(r, map[string]any{"Title": "API Client Detail", "Client": client}))
@@ -486,6 +504,12 @@ func (s *Server) handleRecipientPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleErrorPage(w http.ResponseWriter, r *http.Request) {
+	if session, ok := s.auth.FromRequest(r); ok {
+		s.renderAuthenticatedError(w, r, session, http.StatusInternalServerError, "Error", "The requested action could not be completed.")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusInternalServerError)
 	s.render(w, "error.html", map[string]any{"Title": "Error", "Message": "The requested action could not be completed."})
 }
 
@@ -1609,8 +1633,12 @@ func (s *Server) requirePage(w http.ResponseWriter, r *http.Request, permission 
 
 func (s *Server) requirePageSession(w http.ResponseWriter, r *http.Request, permission string) (auth.Session, bool) {
 	session, ok := s.auth.FromRequest(r)
-	if !ok || !session.Permissions[permission] {
+	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
+		return auth.Session{}, false
+	}
+	if !session.Permissions[permission] {
+		s.renderAuthenticatedError(w, r, session, http.StatusForbidden, "Access denied", "Your account does not have permission to access this page.")
 		return auth.Session{}, false
 	}
 	return session, true
@@ -1811,18 +1839,45 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 }
 
 func (s *Server) adminData(r *http.Request, values map[string]any) map[string]any {
+	if session, ok := s.auth.FromRequest(r); ok {
+		return s.authenticatedPageData(r, session, values)
+	}
 	values["Env"] = s.cfg.AppEnv
 	values["CurrentPath"] = r.URL.Path
-	values["ActorID"] = "admin"
-	values["Role"] = "admin"
-	values["Permissions"] = permissionsMap(adminPermissions())
-	if session, ok := s.auth.FromRequest(r); ok {
-		values["CSRFToken"] = s.auth.CSRFToken(session)
-		values["ActorID"] = session.Username
-		values["Role"] = session.Role
-		values["Permissions"] = session.Permissions
+	values["Authenticated"] = false
+	return values
+}
+
+func (s *Server) authenticatedPageData(r *http.Request, session auth.Session, values map[string]any) map[string]any {
+	model := buildNavigation(s.cfg, session, r.URL.Path)
+	values["Env"] = s.cfg.AppEnv
+	values["CurrentPath"] = r.URL.Path
+	values["CSRFToken"] = s.auth.CSRFToken(session)
+	values["ActorID"] = session.Username
+	values["Role"] = session.Role
+	values["Permissions"] = session.Permissions
+	values["Authenticated"] = true
+	values["Navigation"] = model
+	if s.cfg.AppEnv == "development" {
+		s.logger.Debug("ui navigation resolved", "item_ids", navigationItemIDs(model), "active_item_id", activeNavigationID(r.URL.Path))
 	}
 	return values
+}
+
+func (s *Server) renderPageError(w http.ResponseWriter, r *http.Request, status int, title, message string) {
+	if session, ok := s.auth.FromRequest(r); ok {
+		s.renderAuthenticatedError(w, r, session, status, title, message)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	s.render(w, "error.html", map[string]any{"Title": title, "Message": message})
+}
+
+func (s *Server) renderAuthenticatedError(w http.ResponseWriter, r *http.Request, session auth.Session, status int, title, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	s.render(w, "error.html", s.authenticatedPageData(r, session, map[string]any{"Title": title, "Message": message, "StatusCode": status}))
 }
 
 func (s *Server) dependencyState(ctx context.Context) delivery.DependencyState {

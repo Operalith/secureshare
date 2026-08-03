@@ -928,8 +928,9 @@ func (v *uiVault) Decrypt(context.Context, string) ([]byte, error) { return []by
 func (v *uiVault) Ready(context.Context) error                     { return nil }
 
 type uiStore struct {
-	inserts     int
-	auditEvents []delivery.AuditEventRecord
+	inserts      int
+	auditEvents  []delivery.AuditEventRecord
+	dashboardErr error
 }
 
 func (s *uiStore) Insert(context.Context, delivery.InsertParams) error {
@@ -992,7 +993,7 @@ func (s *uiStore) Dashboard(context.Context) (delivery.DashboardStats, error) {
 				OccurredAt:         time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC),
 			},
 		},
-	}, nil
+	}, s.dashboardErr
 }
 
 func (s *uiStore) RecentActivity(context.Context, int) ([]delivery.ActivityEvent, error) {

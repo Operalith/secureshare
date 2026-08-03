@@ -1,3 +1,34 @@
+{{ if .Authenticated }}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Title }} - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    {{ template "app-sidebar" . }}
+    <div class="workspace">
+      {{ template "app-header" . }}
+      <main id="main-content" class="content-grid">
+        <section class="panel error-panel">
+          <p class="eyebrow">{{ .StatusCode }}</p>
+          <h2>{{ .Title }}</h2>
+          <p class="muted">{{ .Message }}</p>
+          <a class="button-link" href="/admin">Return to dashboard</a>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
+{{ else }}
 <!doctype html>
 <html lang="en">
 <head>
@@ -12,8 +43,9 @@
       <div class="logo-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></div>
       <h1>{{ .Title }}</h1>
       <p class="muted">{{ .Message }}</p>
-      <a class="button-link" href="/admin">Return to admin</a>
+      <a class="button-link" href="/login">Return to sign in</a>
     </section>
   </main>
 </body>
 </html>
+{{ end }}

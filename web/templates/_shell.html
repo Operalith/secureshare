@@ -1,0 +1,43 @@
+{{ define "app-sidebar" }}
+<aside id="app-sidebar" class="sidebar" data-sidebar aria-label="SecureShare workspace">
+  <a class="sidebar-brand" href="/admin">
+    <span class="logo-mark mini" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg></span>
+    <span>SecureShare</span>
+  </a>
+  <nav class="sidebar-nav" aria-label="Application navigation" data-navigation>
+    {{ range .Navigation.Groups }}
+    <section class="nav-group" data-nav-group="{{ .ID }}">
+      <h2 class="nav-group-label">{{ .Label }}</h2>
+      <div class="nav-group-items">
+        {{ range .Items }}
+        <a href="{{ .URL }}" class="nav-item{{ if .Active }} active{{ end }}" data-nav-item-id="{{ .ID }}"{{ if .Active }} aria-current="page"{{ end }}><span class="nav-icon nav-icon-{{ .Icon }}" aria-hidden="true"></span><span>{{ .Label }}</span></a>
+        {{ end }}
+      </div>
+    </section>
+    {{ end }}
+  </nav>
+  {{ with .Navigation.Account }}
+  <div class="sidebar-account">
+    <a href="{{ .URL }}" class="nav-item{{ if .Active }} active{{ end }}" data-nav-item-id="{{ .ID }}"{{ if .Active }} aria-current="page"{{ end }}><span class="nav-icon nav-icon-{{ .Icon }}" aria-hidden="true"></span><span>{{ .Label }}</span></a>
+    <span class="sidebar-identity"><strong>{{ $.ActorID }}</strong><small>{{ $.Role }}</small></span>
+  </div>
+  {{ end }}
+</aside>
+{{ end }}
+
+{{ define "app-header" }}
+<header class="app-header">
+  <button type="button" class="icon-button menu-button" data-menu-toggle aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded="false"><span></span><span></span><span></span></button>
+  <div class="page-heading"><p class="eyebrow">Secure workspace</p><h1>{{ .Title }}</h1></div>
+  <div class="header-actions">
+    <span class="env-pill">{{ .Env }}</span>
+    {{ if .Authenticated }}
+    <span class="user-pill">{{ .ActorID }} · {{ .Role }}</span>
+    <button type="button" class="ghost compact" data-theme-toggle>Theme</button>
+    <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ .CSRFToken }}"><button type="submit" class="ghost compact">Logout</button></form>
+    {{ else }}
+    <a class="button-link secondary-link compact" href="/login">Sign in</a>
+    {{ end }}
+  </div>
+</header>
+{{ end }}
