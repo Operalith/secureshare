@@ -164,6 +164,7 @@ func TestConcurrentConsumeIntegration(t *testing.T) {
 		"title":              "Concurrent secret",
 		"secret":             map[string]any{"value": "only-once"},
 		"expires_in_seconds": 900,
+		"password":           "correct-password",
 	})
 
 	const requests = 20
@@ -174,7 +175,7 @@ func TestConcurrentConsumeIntegration(t *testing.T) {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token}, map[string]string{
+			status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token, "password": "correct-password"}, map[string]string{
 				"X-Forwarded-For": fmt.Sprintf("198.51.100.%d", index+1),
 			})
 			statuses <- status
@@ -205,6 +206,76 @@ func TestConcurrentConsumeIntegration(t *testing.T) {
 	}
 	if len(successes) != 1 {
 		t.Fatalf("secret returned %d times, want once", len(successes))
+	}
+}
+
+func TestPasswordRetryDoesNotAcquireLeaseBeforeVerificationIntegration(t *testing.T) {
+	client := integrationClient(t)
+	marker := "password-retry-" + client.runID
+	created := client.create(t, map[string]any{
+		"title":               "Password retry",
+		"secret":              map[string]any{"value": marker},
+		"expires_in_seconds":  900,
+		"password":            "correct-password",
+		"max_failed_attempts": 3,
+	})
+
+	status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{
+		"token": created.Token, "password": "wrong-password",
+	}, nil)
+	if status != http.StatusUnauthorized || body["code"] != "LINK_PASSWORD_INVALID" || body["message"] != "The link password is incorrect." {
+		t.Fatalf("wrong password = %d %#v, want dedicated 401", status, body)
+	}
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, client.databaseURL)
+	if err != nil {
+		t.Fatalf("database connect failed: %v", err)
+	}
+	defer conn.Close(ctx)
+	var secretStatus string
+	var failedAttempts int
+	var consumingStartedAt *time.Time
+	var consumingLeaseID *string
+	if err := conn.QueryRow(ctx, `
+		SELECT status, failed_attempts, consuming_started_at, consuming_lease_id::text
+		FROM secret_deliveries WHERE id = $1
+	`, created.ID).Scan(&secretStatus, &failedAttempts, &consumingStartedAt, &consumingLeaseID); err != nil {
+		t.Fatalf("query password retry state failed: %v", err)
+	}
+	if secretStatus != "active" || failedAttempts != 1 || consumingStartedAt != nil || consumingLeaseID != nil {
+		t.Fatalf("wrong password state = status=%s attempts=%d started=%v lease=%v", secretStatus, failedAttempts, consumingStartedAt, consumingLeaseID)
+	}
+
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{
+		"token": created.Token, "password": "correct-password",
+	}, nil)
+	if status != http.StatusOK || body["secret"].(map[string]any)["value"] != marker {
+		t.Fatalf("correct retry = %d %#v, want successful reveal", status, body)
+	}
+}
+
+func TestPasswordAttemptLimitReturnsGenericUnavailableIntegration(t *testing.T) {
+	client := integrationClient(t)
+	created := client.create(t, map[string]any{
+		"title":               "Password lockout",
+		"secret":              map[string]any{"value": "locked-value"},
+		"expires_in_seconds":  900,
+		"password":            "correct-password",
+		"max_failed_attempts": 2,
+	})
+
+	status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token, "password": "wrong-one"}, nil)
+	if status != http.StatusUnauthorized || body["code"] != "LINK_PASSWORD_INVALID" {
+		t.Fatalf("first wrong password = %d %#v, want dedicated 401", status, body)
+	}
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token, "password": "wrong-two"}, nil)
+	if status != http.StatusGone || body["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("locking password attempt = %d %#v, want generic 410", status, body)
+	}
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": created.Token, "password": "correct-password"}, nil)
+	if status != http.StatusGone || body["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("locked correct password = %d %#v, want generic 410", status, body)
 	}
 }
 

@@ -8,26 +8,35 @@
   <script src="/static/time.js" defer></script>
   <script src="/static/reveal.js" defer></script>
 </head>
-<body class="recipient-body">
+<body class="recipient-body" data-recipient-state="loading">
   <main class="recipient-page">
-    <section class="recipient-card">
+    <article class="recipient-card" aria-labelledby="recipient-title">
       <div class="logo-mark large" aria-hidden="true">
-        <svg viewBox="0 0 48 48" role="img" aria-label="SecureShare logo"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg>
+        <svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg>
       </div>
-      <p class="eyebrow">SecureShare</p>
-      <h1>A secure secret has been shared with you.</h1>
-      <p class="muted">This secret can only be viewed once. Choose a private setting before revealing it.</p>
-      <div id="prepare-state" class="recipient-state skeleton-line" role="status">Preparing secure link...</div>
-      <p id="expires-state" class="muted"></p>
-      <label id="password-wrap" class="hidden">
-        Link password
-        <span class="input-with-action">
-          <input type="password" id="link-password" autocomplete="current-password" data-secret-input>
-          <button type="button" class="ghost compact" data-toggle-secret aria-label="Show link password">Show</button>
-        </span>
-      </label>
-      <button type="button" id="reveal-button" disabled data-loading-text="Revealing...">Reveal Secret</button>
-      <section id="revealed-secret-wrap" class="revealed hidden" aria-live="polite">
+      <p class="eyebrow">SecureShare · One-time delivery</p>
+      <h1 id="recipient-title">A secure secret has been shared with you.</h1>
+      <p id="recipient-intro" class="muted">This secret can only be viewed once. Choose a private setting before revealing it.</p>
+
+      <section id="loading-state" class="recipient-state-panel recipient-state skeleton-line" data-recipient-state-panel="loading" role="status">
+        Preparing secure link...
+      </section>
+
+      <section id="ready-state" class="recipient-state-panel hidden" data-recipient-state-panel="ready">
+        <div id="prepare-state" class="recipient-state" role="status">Ready to reveal. Opening this page has not consumed the secret.</div>
+        <p id="expires-state" class="muted"></p>
+        <label id="password-wrap" class="hidden" for="link-password">
+          Link password
+          <span class="input-with-action">
+            <input type="password" id="link-password" autocomplete="current-password" data-secret-input aria-describedby="password-error">
+            <button type="button" class="ghost compact" data-toggle-secret aria-label="Show link password">Show</button>
+          </span>
+          <span id="password-error" class="field-error hidden" role="alert" aria-live="assertive"></span>
+        </label>
+        <button type="button" id="reveal-button" data-loading-text="Revealing...">Reveal Secret</button>
+      </section>
+
+      <section id="revealed-secret-wrap" class="recipient-state-panel revealed hidden" data-recipient-state-panel="revealed" aria-live="polite">
         <div class="success-banner">
           <span class="success-icon" aria-hidden="true">✓</span>
           <div><h2>Secret revealed</h2><p>This page cannot retrieve the secret again after refresh or navigation.</p></div>
@@ -38,11 +47,18 @@
           <button type="button" id="copy-secret">Copy all</button>
         </div>
       </section>
-      <section id="unavailable-wrap" class="unavailable hidden" aria-live="polite">
-        <h2>Secret unavailable</h2>
-        <p>This secret has expired, was revoked, or has already been viewed.</p>
+
+      <section id="unavailable-wrap" class="recipient-state-panel unavailable hidden" data-recipient-state-panel="unavailable" aria-live="polite">
+        <h2 id="unavailable-title">Secret unavailable</h2>
+        <p id="unavailable-message">This secret has expired, was revoked, or has already been viewed.</p>
       </section>
-    </section>
+
+      <section id="network-error-wrap" class="recipient-state-panel unavailable hidden" data-recipient-state-panel="network_error" aria-live="polite">
+        <h2>SecureShare could not be reached</h2>
+        <p>The secure link remains available in this page. Check your connection and try again.</p>
+        <button type="button" id="network-retry" class="secondary">Try again</button>
+      </section>
+    </article>
   </main>
   <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
 </body>

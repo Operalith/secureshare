@@ -215,6 +215,12 @@ type ConsumeCandidate struct {
 	MaxFailedAttempts int
 }
 
+type PasswordFailureResult struct {
+	ID      uuid.UUID
+	Updated bool
+	Locked  bool
+}
+
 type PrepareResponse struct {
 	MayAttempt       bool       `json:"may_attempt"`
 	PasswordRequired bool       `json:"password_required"`

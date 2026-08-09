@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"secureshare/internal/auth"
 	"secureshare/internal/config"
 	"secureshare/internal/observability"
 )
@@ -140,6 +141,41 @@ func TestSecretUnavailableUsesGenericErrorCode(t *testing.T) {
 	}
 }
 
+func TestLinkPasswordInvalidUsesDedicatedUnauthorizedError(t *testing.T) {
+	if ErrorStatus(ErrLinkPasswordInvalid) != 401 {
+		t.Fatal("invalid link password should map to 401")
+	}
+	if ErrorCodeFor(ErrLinkPasswordInvalid) != CodeLinkPasswordInvalid {
+		t.Fatal("invalid link password should map to LINK_PASSWORD_INVALID")
+	}
+}
+
+func TestWrongPasswordDoesNotAcquireLeaseAndAllowsRetry(t *testing.T) {
+	hash, err := auth.HashPassword("correct-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{candidate: ConsumeCandidate{ID: uuid.New(), EncryptedPayload: "vault:v1:test", PasswordHash: &hash}}
+	svc := testService(store, &fakeVault{})
+
+	if _, err := svc.Consume(context.Background(), "raw-token", "wrong-password"); !errors.Is(err, ErrLinkPasswordInvalid) {
+		t.Fatalf("wrong password error = %v, want LINK_PASSWORD_INVALID", err)
+	}
+	if store.beginCalls != 0 {
+		t.Fatalf("wrong password acquired %d consume leases, want 0", store.beginCalls)
+	}
+	if store.passwordFailures != 1 {
+		t.Fatalf("password failures = %d, want 1", store.passwordFailures)
+	}
+
+	if _, err := svc.Consume(context.Background(), "raw-token", "correct-password"); err != nil {
+		t.Fatalf("correct retry failed: %v", err)
+	}
+	if store.beginCalls != 1 || !store.completed {
+		t.Fatal("correct retry did not complete exactly one consume lease")
+	}
+}
+
 func TestVaultFailureRestoresConsumeLease(t *testing.T) {
 	store := &fakeStore{
 		candidate: ConsumeCandidate{
@@ -194,9 +230,11 @@ func (v *fakeVault) Ready(context.Context) error {
 }
 
 type fakeStore struct {
-	candidate ConsumeCandidate
-	restored  bool
-	completed bool
+	candidate        ConsumeCandidate
+	restored         bool
+	completed        bool
+	beginCalls       int
+	passwordFailures int
 }
 
 func (s *fakeStore) Insert(context.Context, InsertParams) error { return nil }
@@ -219,13 +257,23 @@ func (s *fakeStore) RecordAuditEvent(context.Context, AuditEventRecord) error { 
 func (s *fakeStore) Prepare(context.Context, []byte) (PrepareResponse, error) {
 	return PrepareResponse{MayAttempt: true}, nil
 }
-func (s *fakeStore) BeginConsume(context.Context, []byte, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error) {
+func (s *fakeStore) FindConsumeCandidate(context.Context, []byte, time.Duration) (ConsumeCandidate, bool, error) {
 	if s.candidate.ID == uuid.Nil {
 		s.candidate.ID = uuid.New()
 	}
 	return s.candidate, true, nil
 }
-func (s *fakeStore) RecordPasswordFailure(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (s *fakeStore) BeginConsume(context.Context, []byte, *string, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error) {
+	s.beginCalls++
+	if s.candidate.ID == uuid.Nil {
+		s.candidate.ID = uuid.New()
+	}
+	return s.candidate, true, nil
+}
+func (s *fakeStore) RecordPasswordFailure(context.Context, []byte, string, time.Duration) (PasswordFailureResult, error) {
+	s.passwordFailures++
+	return PasswordFailureResult{ID: s.candidate.ID, Updated: true}, nil
+}
 func (s *fakeStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error {
 	s.restored = true
 	return nil

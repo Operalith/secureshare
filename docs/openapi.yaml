@@ -396,6 +396,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConsumeResponse'
+        '401':
+          description: The active link requires a password and the supplied password was incorrect. The response code is `LINK_PASSWORD_INVALID`; the secret remains available until the configured attempt limit is reached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: LINK_PASSWORD_INVALID
+                message: The link password is incorrect.
         '410':
           $ref: '#/components/responses/SecretUnavailable'
   /api/v1/secret-links/send-email:
@@ -1818,7 +1827,7 @@ components:
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNAUTHORIZED, FORBIDDEN, SECRET_UNAVAILABLE, RATE_LIMITED, PAYLOAD_TOO_LARGE, EMAIL_DELIVERY_NOT_CONFIGURED, SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED, INTERNAL_ERROR, DEPENDENCY_UNAVAILABLE]
+          enum: [INVALID_REQUEST, UNAUTHORIZED, FORBIDDEN, SECRET_UNAVAILABLE, LINK_PASSWORD_INVALID, RATE_LIMITED, PAYLOAD_TOO_LARGE, EMAIL_DELIVERY_NOT_CONFIGURED, SMTP_CONFIGURATION_ERROR, SMTP_CONNECTION_FAILED, SMTP_TLS_FAILED, SMTP_AUTHENTICATION_FAILED, SMTP_RECIPIENT_REJECTED, SMTP_TIMEOUT, SMTP_DELIVERY_FAILED, INTERNAL_ERROR, DEPENDENCY_UNAVAILABLE]
         message:
           type: string
     EmailErrorResponse:

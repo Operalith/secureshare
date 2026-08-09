@@ -35,8 +35,9 @@ type Store interface {
 	Revoke(context.Context, uuid.UUID) (RevokeResult, error)
 	RecordAuditEvent(context.Context, AuditEventRecord) error
 	Prepare(context.Context, []byte) (PrepareResponse, error)
-	BeginConsume(context.Context, []byte, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error)
-	RecordPasswordFailure(context.Context, uuid.UUID, uuid.UUID) error
+	FindConsumeCandidate(context.Context, []byte, time.Duration) (ConsumeCandidate, bool, error)
+	BeginConsume(context.Context, []byte, *string, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error)
+	RecordPasswordFailure(context.Context, []byte, string, time.Duration) (PasswordFailureResult, error)
 	RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error
 	CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	Cleanup(context.Context, time.Duration, time.Duration, time.Duration, time.Duration, time.Duration) (CleanupResult, error)
@@ -217,16 +218,11 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 		s.metrics.SecretUnavailable.Inc()
 		return ConsumeResponse{}, ErrSecretUnavailable
 	}
-	leaseID, err := uuid.NewRandom()
-	if err != nil {
-		return ConsumeResponse{}, fmt.Errorf("%w: lease id failed", ErrInternal)
-	}
-
 	dbStart := time.Now()
-	item, ok, err := s.store.BeginConsume(ctx, tokenHash, leaseID, s.cfg.ConsumingLeaseTTL)
-	s.observeDatabase(dbStart, "begin_consume")
+	item, ok, err := s.store.FindConsumeCandidate(ctx, tokenHash, s.cfg.ConsumingLeaseTTL)
+	s.observeDatabase(dbStart, "find_consume_candidate")
 	if err != nil {
-		return ConsumeResponse{}, fmt.Errorf("%w: begin consume failed", ErrInternal)
+		return ConsumeResponse{}, fmt.Errorf("%w: find consume candidate failed", ErrInternal)
 	}
 	if !ok {
 		s.metrics.SecretUnavailable.Inc()
@@ -235,12 +231,38 @@ func (s *Service) Consume(ctx context.Context, token string, password string) (C
 
 	if item.PasswordHash != nil && !auth.VerifyPassword(password, *item.PasswordHash) {
 		dbStart := time.Now()
-		err := s.store.RecordPasswordFailure(ctx, item.ID, leaseID)
+		failure, err := s.store.RecordPasswordFailure(ctx, tokenHash, *item.PasswordHash, s.cfg.ConsumingLeaseTTL)
 		s.observeDatabase(dbStart, "record_password_failure")
 		if err != nil {
-			s.logger.Warn("password failure state update failed", "delivery_id", item.ID, "error", err)
+			return ConsumeResponse{}, fmt.Errorf("%w: password failure state update failed", ErrInternal)
 		}
-		s.recordAudit(ctx, AuditEventRecord{DeliveryID: &item.ID, Type: "secret.password_failed", Result: "unavailable"})
+		if !failure.Updated {
+			s.metrics.SecretUnavailable.Inc()
+			return ConsumeResponse{}, ErrSecretUnavailable
+		}
+		result := "invalid"
+		if failure.Locked {
+			result = "locked"
+		}
+		s.recordAudit(ctx, AuditEventRecord{DeliveryID: &failure.ID, Type: "secret.password_failed", Result: result})
+		if failure.Locked {
+			s.metrics.SecretUnavailable.Inc()
+			return ConsumeResponse{}, ErrSecretUnavailable
+		}
+		return ConsumeResponse{}, ErrLinkPasswordInvalid
+	}
+
+	leaseID, err := uuid.NewRandom()
+	if err != nil {
+		return ConsumeResponse{}, fmt.Errorf("%w: lease id failed", ErrInternal)
+	}
+	dbStart = time.Now()
+	item, ok, err = s.store.BeginConsume(ctx, tokenHash, item.PasswordHash, leaseID, s.cfg.ConsumingLeaseTTL)
+	s.observeDatabase(dbStart, "begin_consume")
+	if err != nil {
+		return ConsumeResponse{}, fmt.Errorf("%w: begin consume failed", ErrInternal)
+	}
+	if !ok {
 		s.metrics.SecretUnavailable.Inc()
 		return ConsumeResponse{}, ErrSecretUnavailable
 	}
@@ -471,6 +493,8 @@ func ErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, ErrUnauthorized):
 		return 401
+	case errors.Is(err, ErrLinkPasswordInvalid):
+		return 401
 	case errors.Is(err, ErrForbidden):
 		return 403
 	case errors.Is(err, ErrSecretUnavailable):
@@ -490,6 +514,8 @@ func ErrorCodeFor(err error) ErrorCode {
 	switch {
 	case errors.Is(err, ErrUnauthorized):
 		return CodeUnauthorized
+	case errors.Is(err, ErrLinkPasswordInvalid):
+		return CodeLinkPasswordInvalid
 	case errors.Is(err, ErrForbidden):
 		return CodeForbidden
 	case errors.Is(err, ErrSecretUnavailable):

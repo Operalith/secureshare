@@ -164,7 +164,15 @@ password_body="$(create_secret "security-password" "{\"value\":\"${CANARY}-passw
 password_token="$(token_from_body <<<"${password_body}")"
 for attempt in 1 2; do
   wrong="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links/consume" -H "Content-Type: application/json" --data "{\"token\":\"${password_token}\",\"password\":\"wrong-${attempt}\"}")"
-  assert_status "$(status_of "${wrong}")" "410" "password failure ${attempt}"
+  if [[ "${attempt}" == "1" ]]; then
+    assert_status "$(status_of "${wrong}")" "401" "retryable password failure"
+    if [[ "$(body_of "${wrong}" | json_get code)" != "LINK_PASSWORD_INVALID" ]]; then
+      echo "retryable password failure did not return LINK_PASSWORD_INVALID" >&2
+      exit 1
+    fi
+  else
+    assert_status "$(status_of "${wrong}")" "410" "locking password failure"
+  fi
 done
 locked="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links/consume" -H "Content-Type: application/json" --data "{\"token\":\"${password_token}\",\"password\":\"correct-password\"}")"
 assert_status "$(status_of "${locked}")" "410" "password lockout"

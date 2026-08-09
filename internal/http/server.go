@@ -1997,6 +1997,9 @@ func (s *Server) writeDeliveryError(w http.ResponseWriter, err error) {
 	if code == delivery.CodeSecretUnavailable {
 		message = secretUnavailableMessage()
 	}
+	if code == delivery.CodeLinkPasswordInvalid {
+		message = "The link password is incorrect."
+	}
 	if code == delivery.CodePayloadTooLarge {
 		message = "Payload too large."
 	}

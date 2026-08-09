@@ -1,18 +1,26 @@
 (() => {
+  const states = new Set(["loading", "ready", "submitting", "password_error", "revealed", "unavailable", "network_error"]);
   let token = "";
   let revealedText = "";
+  let currentState = "loading";
+  let retryAction = "prepare";
 
-  const state = document.querySelector("#prepare-state");
+  const readyState = document.querySelector("#ready-state");
+  const prepareState = document.querySelector("#prepare-state");
   const expiresState = document.querySelector("#expires-state");
   const revealButton = document.querySelector("#reveal-button");
   const passwordWrap = document.querySelector("#password-wrap");
   const passwordInput = document.querySelector("#link-password");
+  const passwordError = document.querySelector("#password-error");
   const secretWrap = document.querySelector("#revealed-secret-wrap");
   const structuredWrap = document.querySelector("#structured-secret");
   const plainWrap = document.querySelector("#plain-secret-wrap");
   const secretCode = document.querySelector("#revealed-secret");
   const copyButton = document.querySelector("#copy-secret");
   const unavailableWrap = document.querySelector("#unavailable-wrap");
+  const unavailableTitle = document.querySelector("#unavailable-title");
+  const unavailableMessage = document.querySelector("#unavailable-message");
+  const networkRetry = document.querySelector("#network-retry");
 
   function toast(message) {
     const region = document.querySelector(".toast-region");
@@ -24,16 +32,45 @@
     setTimeout(() => item.remove(), 3200);
   }
 
-  function setState(message) {
-    state.textContent = message;
-    state.classList.remove("skeleton-line");
+  function setState(next) {
+    if (!states.has(next)) throw new Error(`Unknown recipient state: ${next}`);
+    currentState = next;
+    document.body.dataset.recipientState = next;
+    document.querySelectorAll("[data-recipient-state-panel]").forEach((panel) => {
+      let visible = panel.dataset.recipientStatePanel === next;
+      if (panel === readyState && ["ready", "submitting", "password_error"].includes(next)) visible = true;
+      panel.classList.toggle("hidden", !visible);
+    });
+    passwordError?.classList.toggle("hidden", next !== "password_error");
+    passwordInput?.toggleAttribute("aria-invalid", next === "password_error");
+  }
+
+  function setSubmitting(submitting) {
+    if (!revealButton) return;
+    revealButton.textContent = submitting ? (revealButton.dataset.loadingText || "Revealing...") : "Reveal Secret";
+    revealButton.disabled = submitting;
   }
 
   function unavailable() {
     token = "";
-    revealButton.disabled = true;
-    setState("This secret has expired, was revoked, or has already been viewed.");
-    unavailableWrap.classList.remove("hidden");
+    setSubmitting(false);
+    unavailableTitle.textContent = "Secret unavailable";
+    unavailableMessage.textContent = "This secret has expired, was revoked, or has already been viewed.";
+    setState("unavailable");
+  }
+
+  function sessionLost() {
+    token = "";
+    setSubmitting(false);
+    unavailableTitle.textContent = "Reopen the original secure link";
+    unavailableMessage.textContent = "This secure link is no longer available in this browser session. Reopen the original link you received.";
+    setState("unavailable");
+  }
+
+  function networkError(action) {
+    retryAction = action;
+    setSubmitting(false);
+    setState("network_error");
   }
 
   function setupSecretToggles(root = document) {
@@ -53,49 +90,47 @@
     const fragment = window.location.hash.slice(1);
     if (fragment) {
       token = fragment;
-      history.replaceState(null, "", window.location.pathname);
+      history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
     if (!token) {
-      unavailable();
+      sessionLost();
       return;
     }
-    const response = await fetch("/api/v1/secret-links/prepare", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || !body.may_attempt) {
-      unavailable();
-      return;
-    }
-    if (body.password_required) passwordWrap.classList.remove("hidden");
-    if (body.expires_at) {
-      const timeElement = document.createElement("time");
-      if (window.SecureShareTime?.render) {
-        window.SecureShareTime.render(timeElement, body.expires_at, { emptyLabel: "Invalid date" });
-      } else {
-        timeElement.textContent = body.expires_at;
-        timeElement.setAttribute("datetime", body.expires_at);
-        timeElement.setAttribute("title", body.expires_at);
+    setState("loading");
+    try {
+      const response = await fetch("/api/v1/secret-links/prepare", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        networkError("prepare");
+        return;
       }
-      expiresState.replaceChildren("Available until ", timeElement, ".");
+      if (!body.may_attempt) {
+        unavailable();
+        return;
+      }
+      passwordWrap.classList.toggle("hidden", !body.password_required);
+      if (body.expires_at) {
+        const timeElement = document.createElement("time");
+        if (window.SecureShareTime?.render) {
+          window.SecureShareTime.render(timeElement, body.expires_at, { emptyLabel: "Invalid date" });
+        } else {
+          timeElement.textContent = body.expires_at;
+          timeElement.setAttribute("datetime", body.expires_at);
+          timeElement.setAttribute("title", body.expires_at);
+        }
+        expiresState.replaceChildren("Available until ", timeElement, ".");
+      }
+      prepareState.textContent = "Ready to reveal. Opening this page has not consumed the secret.";
+      setSubmitting(false);
+      setState("ready");
+    } catch {
+      networkError("prepare");
     }
-    revealButton.disabled = false;
-    setState("Ready to reveal. Opening this page has not consumed the secret.");
-  }
-
-  function setButtonLoading(button, loading) {
-    if (!button) return;
-    if (loading) {
-      button.dataset.originalText = button.textContent;
-      button.textContent = button.dataset.loadingText || "Working...";
-      button.disabled = true;
-      return;
-    }
-    button.textContent = button.dataset.originalText || button.textContent;
-    button.disabled = false;
   }
 
   function renderField(field) {
@@ -165,29 +200,55 @@
 
   async function reveal() {
     if (!token) {
-      unavailable();
+      sessionLost();
       return;
     }
-    setButtonLoading(revealButton, true);
-    setState("Revealing secret...");
-    const response = await fetch("/api/v1/secret-links/consume", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, password: passwordInput.value || "" }),
-    });
-    const body = await response.json().catch(() => ({}));
-    token = "";
-    if (!response.ok) {
-      unavailable();
-      return;
+    passwordError.textContent = "";
+    setSubmitting(true);
+    setState("submitting");
+    let shouldFocusPassword = false;
+    try {
+      const response = await fetch("/api/v1/secret-links/consume", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password: passwordInput.value || "" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401 && body.code === "LINK_PASSWORD_INVALID") {
+          passwordError.textContent = body.message || "The link password is incorrect.";
+          setState("password_error");
+          shouldFocusPassword = true;
+          return;
+        }
+        if (body.code === "SECRET_UNAVAILABLE") {
+          unavailable();
+          return;
+        }
+        networkError("reveal");
+        return;
+      }
+      token = "";
+      renderSecret(body.payload, body.secret);
+      setState("revealed");
+    } catch {
+      networkError("reveal");
+    } finally {
+      setSubmitting(false);
+      if (currentState === "submitting") setState("ready");
+      if (shouldFocusPassword) passwordInput.focus();
     }
-    renderSecret(body.payload, body.secret);
-    secretWrap.classList.remove("hidden");
-    setState("Secret revealed once.");
   }
 
   revealButton?.addEventListener("click", reveal);
+  passwordInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !revealButton.disabled) reveal();
+  });
+  networkRetry?.addEventListener("click", () => {
+    if (retryAction === "reveal") reveal();
+    else prepare();
+  });
   copyButton?.addEventListener("click", async () => {
     if (!revealedText) return;
     await navigator.clipboard.writeText(revealedText);

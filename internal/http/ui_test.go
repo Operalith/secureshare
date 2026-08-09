@@ -1017,12 +1017,18 @@ func (s *uiStore) Prepare(context.Context, []byte) (delivery.PrepareResponse, er
 	return delivery.PrepareResponse{MayAttempt: true, PasswordRequired: false, ExpiresAt: &expires}, nil
 }
 
-func (s *uiStore) BeginConsume(context.Context, []byte, uuid.UUID, time.Duration) (delivery.ConsumeCandidate, bool, error) {
+func (s *uiStore) FindConsumeCandidate(context.Context, []byte, time.Duration) (delivery.ConsumeCandidate, bool, error) {
 	return delivery.ConsumeCandidate{ID: testUUID, EncryptedPayload: "vault:v1:canary"}, true, nil
 }
 
-func (s *uiStore) RecordPasswordFailure(context.Context, uuid.UUID, uuid.UUID) error { return nil }
-func (s *uiStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error        { return nil }
+func (s *uiStore) BeginConsume(context.Context, []byte, *string, uuid.UUID, time.Duration) (delivery.ConsumeCandidate, bool, error) {
+	return delivery.ConsumeCandidate{ID: testUUID, EncryptedPayload: "vault:v1:canary"}, true, nil
+}
+
+func (s *uiStore) RecordPasswordFailure(context.Context, []byte, string, time.Duration) (delivery.PasswordFailureResult, error) {
+	return delivery.PasswordFailureResult{ID: testUUID, Updated: true}, nil
+}
+func (s *uiStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 func (s *uiStore) CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return true, nil
 }

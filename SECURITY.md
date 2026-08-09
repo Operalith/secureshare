@@ -126,7 +126,9 @@ Historical email resend is unavailable because raw tokens are not stored. Immedi
 
 ## Replay Prevention
 
-The database enforces one-time reveal with an atomic `active` to `consuming` transition and a lease ID. Only the lease owner can complete consumption. After successful decrypt, the app transitions to `consumed` and blanks ciphertext before returning plaintext.
+The database enforces one-time reveal with an atomic `active` to `consuming` transition and a lease ID. Link passwords are verified before that lease is acquired. An incorrect password increments the failure counter atomically without entering `consuming`; attempts below the configured limit return `401 LINK_PASSWORD_INVALID`, while the locking attempt and later requests use the generic unavailable response. Only the lease owner can complete consumption. After successful decrypt, the app transitions to `consumed` and blanks ciphertext before returning plaintext.
+
+The recipient page reads the raw token from `/s#<token>`, immediately removes the fragment from the address bar, and retains the token only in page memory. Password retries therefore work without navigation or reload. Refreshing the stripped URL intentionally loses access; the recipient must reopen the original link. SecureShare does not cache raw tokens in browser storage.
 
 ## Concurrency Handling
 

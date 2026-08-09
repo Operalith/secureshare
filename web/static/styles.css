@@ -1203,6 +1203,28 @@ th {
   padding: clamp(24px, 5vw, 42px);
 }
 
+.recipient-state-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.recipient-state-panel.hidden {
+  display: none;
+}
+
+.field-error {
+  display: block;
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+}
+
+#link-password[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
 .recipient-card h1 {
   font-size: clamp(1.9rem, 5vw, 3.4rem);
   line-height: 1.04;

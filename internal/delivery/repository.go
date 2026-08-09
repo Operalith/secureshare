@@ -270,7 +270,29 @@ func (r *Repository) Prepare(ctx context.Context, tokenHash []byte) (PrepareResp
 	return response, err
 }
 
-func (r *Repository) BeginConsume(ctx context.Context, tokenHash []byte, leaseID uuid.UUID, leaseTTL time.Duration) (ConsumeCandidate, bool, error) {
+func (r *Repository) FindConsumeCandidate(ctx context.Context, tokenHash []byte, leaseTTL time.Duration) (ConsumeCandidate, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	leaseSeconds := int64(leaseTTL.Seconds())
+	var item ConsumeCandidate
+	err := r.db.QueryRow(ctx, `
+		SELECT id, encrypted_payload, password_hash, failed_attempts, max_failed_attempts
+		FROM secret_deliveries
+		WHERE token_hash = $1
+		  AND expires_at > NOW()
+		  AND failed_attempts < max_failed_attempts
+		  AND (
+			status = 'active'
+			OR (status = 'consuming' AND consuming_started_at < NOW() - make_interval(secs => $2))
+		  )
+	`, tokenHash, leaseSeconds).Scan(&item.ID, &item.EncryptedPayload, &item.PasswordHash, &item.FailedAttempts, &item.MaxFailedAttempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ConsumeCandidate{}, false, nil
+	}
+	return item, true, err
+}
+
+func (r *Repository) BeginConsume(ctx context.Context, tokenHash []byte, expectedPasswordHash *string, leaseID uuid.UUID, leaseTTL time.Duration) (ConsumeCandidate, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	leaseSeconds := int64(leaseTTL.Seconds())
@@ -284,22 +306,26 @@ func (r *Repository) BeginConsume(ctx context.Context, tokenHash []byte, leaseID
 		WHERE token_hash = $1
 		  AND expires_at > NOW()
 		  AND failed_attempts < max_failed_attempts
+		  AND password_hash IS NOT DISTINCT FROM $4::text
 		  AND (
 			status = 'active'
 			OR (status = 'consuming' AND consuming_started_at < NOW() - make_interval(secs => $3))
 		  )
 		RETURNING id, encrypted_payload, password_hash, failed_attempts, max_failed_attempts
-	`, tokenHash, leaseID, leaseSeconds).Scan(&item.ID, &item.EncryptedPayload, &item.PasswordHash, &item.FailedAttempts, &item.MaxFailedAttempts)
+	`, tokenHash, leaseID, leaseSeconds, expectedPasswordHash).Scan(&item.ID, &item.EncryptedPayload, &item.PasswordHash, &item.FailedAttempts, &item.MaxFailedAttempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ConsumeCandidate{}, false, nil
 	}
 	return item, true, err
 }
 
-func (r *Repository) RecordPasswordFailure(ctx context.Context, id uuid.UUID, leaseID uuid.UUID) error {
+func (r *Repository) RecordPasswordFailure(ctx context.Context, tokenHash []byte, expectedPasswordHash string, leaseTTL time.Duration) (PasswordFailureResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.db.Exec(ctx, `
+	leaseSeconds := int64(leaseTTL.Seconds())
+	var result PasswordFailureResult
+	var status string
+	err := r.db.QueryRow(ctx, `
 		UPDATE secret_deliveries
 		SET failed_attempts = failed_attempts + 1,
 			status = CASE WHEN failed_attempts + 1 >= max_failed_attempts THEN 'revoked' ELSE 'active' END,
@@ -308,11 +334,25 @@ func (r *Repository) RecordPasswordFailure(ctx context.Context, id uuid.UUID, le
 			consuming_started_at = NULL,
 			consuming_lease_id = NULL,
 			updated_at = NOW()
-		WHERE id = $1
-		  AND status = 'consuming'
-		  AND consuming_lease_id = $2
-	`, id, leaseID)
-	return err
+		WHERE token_hash = $1
+		  AND password_hash = $2
+		  AND expires_at > NOW()
+		  AND failed_attempts < max_failed_attempts
+		  AND (
+			status = 'active'
+			OR (status = 'consuming' AND consuming_started_at < NOW() - make_interval(secs => $3))
+		  )
+		RETURNING id, status
+	`, tokenHash, expectedPasswordHash, leaseSeconds).Scan(&result.ID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PasswordFailureResult{}, nil
+	}
+	if err != nil {
+		return PasswordFailureResult{}, err
+	}
+	result.Updated = true
+	result.Locked = status == StatusRevoked
+	return result, nil
 }
 
 func (r *Repository) RestoreConsume(ctx context.Context, id uuid.UUID, leaseID uuid.UUID) error {
