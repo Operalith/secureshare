@@ -32,6 +32,8 @@ Outside development, startup fails for weak admin keys, token peppers, session s
 
 SMTP host, port, sender, default templates, and SMTP password are managed through `/admin/settings/email`. Runtime SMTP credentials should not be kept in `.env`; the UI stores the password encrypted with Vault Transit.
 
+The global recipient locale is managed by administrators at `/admin/settings/public-experience` and persisted in the singleton `application_settings` row. Supported values are English (`en`, default) and Persian (`fa`). The preview actions use fixed fake data and do not create deliveries. Theme is a per-user account preference (`system`, `light`, or `dark`), not a deployment environment setting or browser-storage value.
+
 ## API Client Operations
 
 Create scoped machine credentials in `/admin/api-clients`. The `client_secret` is displayed only when the client is created or rotated; store it in the integration secret manager immediately.
@@ -124,7 +126,9 @@ docker compose --profile observability up -d prometheus
 
 The wrapper removes containers and volumes after each run, including failed runs. Development data, SMTP settings, dashboard counts, and audit timeline are not used by automated tests. Use `SECURESHARE_CONFIRM_DEV_RESET=reset-dev-data make dev-reset-data` only for local development cleanup; it preserves users, API clients, and encrypted SMTP settings.
 
-`make ui-e2e` uses a separate `secureshare_ui_e2e` Compose project, app port `18081`, PostgreSQL port `15433`, Vault port `18201`, and Mailpit ports `11026`/`18026`. The dedicated `tests/e2e` workspace pins Playwright and runs against a locally installed Chrome channel; Playwright and Node are not added to the application image. It creates only synthetic `example.local` users and fixture metadata, asserts development data was not touched, and removes its disposable volumes and temporary authenticated state on exit. Failure-only artifacts are stored under the Git-ignored `artifacts/ui-e2e` directory.
+`make ui-e2e` uses a separate `secureshare_ui_e2e` Compose project, app port `18081`, PostgreSQL port `15433`, Vault port `18201`, and Mailpit ports `11026`/`18026`. The dedicated `tests/e2e` workspace pins Playwright and runs against a locally installed Chrome channel; Playwright and Node are not added to the application image. It creates only synthetic `example.local` users and fixture metadata, asserts development data was not touched, and removes its disposable volumes and temporary authenticated state on exit. Failure-only artifacts are stored under the Git-ignored `artifacts/ui-e2e` directory. `make recipient-qa-test` runs only the localized recipient/password-retry projects across the required 375, 390, 768, 1366, 1440, and 1920 widths.
+
+Both browser wrappers fail on JavaScript exceptions, CSP violations, failed local assets, unexpected external requests, server 500 responses, or sensitive canaries in application logs. The log scanner checks raw fragments/full URLs, link passwords, secret fixtures, SMTP passwords, API client secrets, session tokens, and Authorization headers without printing any matched secret.
 
 Use `docs/UI_QA_CHECKLIST.md` for the role, route, viewport, console/network, accessibility, and redaction matrix.
 

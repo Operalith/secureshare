@@ -38,7 +38,7 @@ Current role results are:
 
 | Role | Navigation item IDs |
 | --- | --- |
-| admin | `dashboard`, `create-secret`, `secret-links`, `api-clients`, `users`, `email-settings`, `system-status`, `api-docs`, `help`, `account` |
+| admin | `dashboard`, `create-secret`, `secret-links`, `api-clients`, `users`, `email-settings`, `public-experience`, `system-status`, `api-docs`, `help`, `account` |
 | developer | `dashboard`, `create-secret`, `secret-links`, `api-docs`, `help`, `account` |
 | viewer | `dashboard`, `secret-links`, `system-status`, `api-docs`, `help`, `account` |
 
@@ -79,6 +79,14 @@ Desktop and mobile use one navigation DOM and one server-generated item list. CS
 - safe reset on desktop resize and `pagehide`.
 
 The script does not fetch or reconstruct menu items.
+
+The theme control cycles `system`, `light`, and `dark` through `/api/v1/me/preferences/theme`. The database-backed user preference is included in every protected server render, preventing a wrong-theme first paint and carrying the choice across navigation, refresh, tabs, sessions, devices, and logout/login. Theme scripts do not use localStorage, sessionStorage, or cookies.
+
+## Public Recipient Experience
+
+`/s` is a server-rendered page outside the authenticated shell. `internal/publicexperience` owns the English/Persian catalog, locale validation, text direction, and localized Gregorian date formatting. The reveal script consumes localized strings embedded by the server and displays exactly one explicit state panel: `ready`, `password_error`, `revealing`, `revealed`, or `unavailable`.
+
+The browser removes the fragment and keeps its raw token only in page memory. Wrong passwords preserve that in-memory token and return the form to an enabled retry state; success removes all reveal controls. Refresh loses the token and shows the safe session-lost variant of unavailable. The Persian page uses RTL layout with LTR/isolate rules on technical values and a system fallback font stack; it fetches no external asset.
 
 ## Logout
 

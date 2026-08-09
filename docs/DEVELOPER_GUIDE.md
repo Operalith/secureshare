@@ -178,7 +178,11 @@ Set `expires_in_seconds` for each link. Expired, consumed, revoked, unknown, loc
 
 ## 12. Password-Protected Links
 
-Set `password` on create to require a recipient password before reveal. Link passwords are hashed with Argon2id and never returned.
+Set `password` on create to require a recipient password before reveal. Link passwords are hashed with Argon2id and never returned. A wrong password below `max_failed_attempts` returns `401 LINK_PASSWORD_INVALID` and can be retried without refreshing the page. The locking attempt and later attempts return terminal, generic `410 SECRET_UNAVAILABLE`.
+
+Clients with `secret:manage-protection` can `PUT /api/v1/secret-links/{id}/password` with a replacement `password` or `DELETE` that endpoint. Admins and scoped machine clients may manage any active link; developers may manage only links they created. Replacement resets failed attempts, removal clears them, and both keep the existing one-time URL. There is no get-current-password operation because the password is non-recoverable.
+
+The recipient URL token lives in the fragment. The page removes the fragment before network use and retains the token only in memory for prepare, wrong-password retry, and consume. A refresh cannot recover it and must not be worked around with Web Storage, a cookie, IndexedDB, or service-worker caching; the recipient must reopen the original link.
 
 ## 13. Revocation
 
@@ -201,7 +205,9 @@ Errors use:
 {"code":"INVALID_REQUEST","message":"Invalid request."}
 ```
 
-Treat `401` as missing credentials, invalid credentials, disabled/expired clients, or missing scope. Treat `410 SECRET_UNAVAILABLE` as terminal for recipient reveal attempts. Treat `422 EMAIL_DELIVERY_NOT_CONFIGURED` as an administrator action item, not a retriable create failure.
+Treat management-endpoint `401` as missing or invalid credentials. On recipient consume only, `401 LINK_PASSWORD_INVALID` is retryable while the page still holds the fragment token in memory. Treat `410 SECRET_UNAVAILABLE` as terminal for recipient reveal attempts. Treat `422 EMAIL_DELIVERY_NOT_CONFIGURED` as an administrator action item, not a retriable create failure.
+
+Public recipient pages use the administrator-selected global locale, `en` or `fa`. Do not assume direction from credential content: Persian copy is RTL, while field values such as usernames, API keys, code, and URLs are explicitly LTR-isolated. Recipient expiration dates use the selected locale with the Gregorian calendar.
 
 ## 16. Rate Limits
 

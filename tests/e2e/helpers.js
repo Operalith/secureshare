@@ -41,6 +41,9 @@ async function monitorPage(page, baseURL) {
     if (new URL(response.url()).origin === origin && response.status() === 401 && responseURL.pathname !== "/api/v1/secret-links/consume") {
       problems.push(`unexpected authenticated 401: ${response.url()}`);
     }
+    if (responseURL.origin === origin && response.status() >= 500) {
+      problems.push(`unexpected server HTTP ${response.status()}: ${response.url()}`);
+    }
     if (["stylesheet", "script", "font", "image"].includes(type) && response.status() >= 400) {
       problems.push(`static asset HTTP ${response.status()}: ${response.url()}`);
     }

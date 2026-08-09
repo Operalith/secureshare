@@ -85,6 +85,8 @@ Secret pages and API responses include:
 
 The frontend does not use localStorage, sessionStorage, IndexedDB, cookies, service worker cache, query parameters, external scripts, external fonts, analytics, or persisted frontend state for secrets.
 
+The recipient page reads `#<token>`, immediately replaces the URL with `/s`, and holds the raw token only in JavaScript memory until navigation, close, or refresh. This deliberately prevents durable browser history and storage from becoming another bearer-token repository. Refresh therefore shows the safe session-lost state and requires reopening the original link.
+
 HTTPS and HSTS are mandatory in production.
 
 Swagger UI is served from local assets only. It disables persisted authorization, does not prefill API client credentials, and uses the authenticated `/openapi.yaml` endpoint unless `OPENAPI_PUBLIC=true`.
@@ -112,7 +114,7 @@ Machine-authenticated Basic and legacy bearer requests do not use browser CSRF p
 
 API clients authenticate with HTTP Basic auth using `client_id:client_secret`. Client secrets are generated with cryptographically secure randomness, shown only at creation or rotation, and stored only as `HMAC-SHA256(TOKEN_HMAC_PEPPER, client_id || client_secret)`.
 
-Supported scopes are `secret:create`, `secret:list`, `secret:read-metadata`, `secret:revoke`, `dashboard:read`, and `email:send`. API clients can be disabled, revoked, expired, and rotated. Basic auth is rejected in production unless the request is HTTPS or carries `X-Forwarded-Proto: https` from the trusted reverse proxy.
+Supported scopes are `secret:create`, `secret:list`, `secret:read-metadata`, `secret:revoke`, `secret:manage-protection`, `dashboard:read`, and `email:send`. API clients can be disabled, revoked, expired, and rotated. Basic auth is rejected in production unless the request is HTTPS or carries `X-Forwarded-Proto: https` from the trusted reverse proxy.
 
 ## Email Template and SMTP Security
 
@@ -129,6 +131,10 @@ Historical email resend is unavailable because raw tokens are not stored. Immedi
 The database enforces one-time reveal with an atomic `active` to `consuming` transition and a lease ID. Link passwords are verified before that lease is acquired. An incorrect password increments the failure counter atomically without entering `consuming`; attempts below the configured limit return `401 LINK_PASSWORD_INVALID`, while the locking attempt and later requests use the generic unavailable response. Only the lease owner can complete consumption. After successful decrypt, the app transitions to `consumed` and blanks ciphertext before returning plaintext.
 
 The recipient page reads the raw token from `/s#<token>`, immediately removes the fragment from the address bar, and retains the token only in page memory. Password retries therefore work without navigation or reload. Refreshing the stripped URL intentionally loses access; the recipient must reopen the original link. SecureShare does not cache raw tokens in browser storage.
+
+Link protection can be set, replaced, or removed only while a link is active, unconsumed, unexpired, and not revoked. Admins and scoped API clients may manage any link; developers may manage links they created; viewers are denied. Replacement writes a new Argon2id hash and resets failed attempts, removal clears the hash and counter, and neither operation changes or reconstructs the one-time URL. The current password is non-recoverable and is never returned by metadata, API, or HTML.
+
+The public-experience preview is admin-only, uses fixed fake data, and does not create a delivery or token. Both supported locales use bundled application assets and the existing strict CSP; Persian selects only a system font fallback list and makes no external font request. Technical credential values are explicitly LTR-isolated inside the RTL document.
 
 ## Concurrency Handling
 

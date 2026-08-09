@@ -1,8 +1,8 @@
 const { test, expect } = require("@playwright/test");
-const { fixtures, gotoPage, monitorPage } = require("../helpers");
+const { gotoPage, monitorPage } = require("../helpers");
 
 test.beforeEach(async ({}, testInfo) => {
-  test.skip(testInfo.project.name === "roles", "covered by the role-specific suite");
+  test.skip(testInfo.project.name !== "desktop-1280", "Interaction QA runs once; recipient layout owns the six-viewport matrix.");
 });
 
 test("credential picker builds mixed independent fields and rejects duplicates", async ({ page, baseURL }) => {
@@ -61,38 +61,73 @@ test("credential picker builds mixed independent fields and rejects duplicates",
   monitor.assertClean();
 });
 
-test("active link password can be set replaced and removed without exposing the old value", async ({ page, baseURL }) => {
+test("active link password can be replaced and removed without exposing the current value", async ({ page, request, baseURL }, testInfo) => {
   const monitor = await monitorPage(page, baseURL);
-  const { secretID } = fixtures();
-  await gotoPage(page, `/admin/secrets/${secretID}`);
+  const ipOctet = 20 + ([...testInfo.project.name].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 180);
+  const bearer = {
+    Authorization: `Bearer ${process.env.TEST_SECURESHARE_ADMIN_API_KEY || "test-admin-api-key-change-me"}`,
+    "X-Forwarded-For": `198.51.100.${ipOctet}`,
+  };
+  await page.context().setExtraHTTPHeaders({ "X-Forwarded-For": bearer["X-Forwarded-For"] });
+  const createFixture = async (suffix, password, value) => {
+    const response = await request.post("/api/v1/secret-links", {
+      headers: bearer,
+      data: {
+        title: `Protection QA ${suffix} ${testInfo.project.name}`,
+        recipient_reference: `protection-${suffix}-${testInfo.project.name}-${Date.now()}`,
+        expires_in_seconds: 900,
+        password,
+        payload: { type: "text", text: value },
+      },
+    });
+    expect(response.status()).toBe(201);
+    return response.json();
+  };
+
+  const oldPassword = "e2e-first-link-password";
+  const replacementPassword = "e2e-replacement-link-password";
+  const replacementValue = `replacement-value-${testInfo.project.name}-${Date.now()}`;
+  const replaced = await createFixture("replace", oldPassword, replacementValue);
+  await gotoPage(page, `/admin/secrets/${replaced.id}`);
 
   const form = page.locator("[data-password-protection-form]");
   await expect(form).toBeVisible();
-  const remove = form.locator("[data-protection-remove]");
-  if (await remove.isVisible()) {
-    await remove.click();
-    await page.locator('[data-confirm-dialog] button[value="confirm"]').click();
-    await expect(page.locator("[data-protection-status]")).toHaveText("No");
-  }
-
   const password = form.locator('input[name="password"]');
-  await password.fill("e2e-first-link-password");
-  await form.locator("[data-protection-save]").click();
   await expect(page.locator("[data-protection-status]")).toHaveText("Yes");
   await expect(password).toHaveValue("");
-  await expect(form.locator("[data-protection-save]")).toHaveText("Replace password");
-  await expect(remove).toBeVisible();
-
-  await password.fill("e2e-replacement-link-password");
+  await password.fill(replacementPassword);
   await form.locator("[data-protection-save]").click();
   await expect(page.locator(".toast-region")).toContainText("Link password replaced.");
   await expect(password).toHaveValue("");
+  await expect(page.locator("main")).not.toContainText(oldPassword);
+  await expect(page.locator("main")).not.toContainText(replacementPassword);
 
-  await remove.click();
+  const replacementFragment = new URL(replaced.url).hash;
+  await page.goto(`/s${replacementFragment}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "ready");
+  await page.locator("#link-password").fill(oldPassword);
+  await page.locator("#reveal-button").click();
+  await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "password_error");
+  await page.locator("#link-password").fill(replacementPassword);
+  await page.locator("#reveal-button").click();
+  await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "revealed");
+  await expect(page.locator("#revealed-secret")).toHaveText(replacementValue);
+
+  const removedValue = `removed-value-${testInfo.project.name}-${Date.now()}`;
+  const removed = await createFixture("remove", "e2e-remove-link-password", removedValue);
+  await gotoPage(page, `/admin/secrets/${removed.id}`);
+  const removeForm = page.locator("[data-password-protection-form]");
+  await expect(removeForm.locator('input[name="password"]')).toHaveValue("");
+  await removeForm.locator("[data-protection-remove]").click();
   await page.locator('[data-confirm-dialog] button[value="confirm"]').click();
   await expect(page.locator("[data-protection-status]")).toHaveText("No");
-  await expect(remove).toBeHidden();
-  await expect(page.locator("main")).not.toContainText("e2e-first-link-password");
-  await expect(page.locator("main")).not.toContainText("e2e-replacement-link-password");
+  await expect(removeForm.locator("[data-protection-remove]")).toBeHidden();
+
+  await page.goto(`/s${new URL(removed.url).hash}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "ready");
+  await expect(page.locator("#password-wrap")).toBeHidden();
+  await page.locator("#reveal-button").click();
+  await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "revealed");
+  await expect(page.locator("#revealed-secret")).toHaveText(removedValue);
   monitor.assertClean();
 });

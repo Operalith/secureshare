@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_NAME="${SECURESHARE_UI_E2E_PROJECT:-secureshare_ui_e2e}"
 RUN_ID="${SECURESHARE_TEST_RUN_ID:-ui-e2e-$(date +%Y%m%d%H%M%S)-$$}"
 AUTH_DIR="$(mktemp -d -t secureshare-ui-e2e-auth)"
+LOG_FILE="$(mktemp -t secureshare-ui-e2e-logs)"
 
 export COMPOSE_PROJECT_NAME="${PROJECT_NAME}"
 export SECURESHARE_TEST_ISOLATED=1
@@ -21,6 +22,9 @@ cleanup() {
   "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   if [[ -n "${AUTH_DIR}" && -d "${AUTH_DIR}" ]]; then
     rm -rf -- "${AUTH_DIR}"
+  fi
+  if [[ -n "${LOG_FILE}" && -f "${LOG_FILE}" ]]; then
+    rm -f -- "${LOG_FILE}"
   fi
 }
 
@@ -49,6 +53,27 @@ assert_dev_not_touched() {
   fi
 }
 
+assert_logs_redacted() {
+  "${compose[@]}" logs --no-color app-test >"${LOG_FILE}" 2>/dev/null || return 1
+  local label pattern
+  while IFS='|' read -r label pattern; do
+    if rg -q -- "${pattern}" "${LOG_FILE}"; then
+      echo "isolated application logs contain forbidden ${label}" >&2
+      return 1
+    fi
+  done <<'EOF'
+raw fragment URL|/s#[A-Za-z0-9_-]{16,}
+raw token field|"token"[[:space:]]*:
+session cookie|ss_session=
+authorization header|[Aa]uthorization:[[:space:]]
+English recipient secret|english-recipient-secret-
+Persian API key|QA_KEY_
+recipient link password|(correct-recipient-password|english-recipient-password|persian-recipient-password|e2e-(first|replacement|remove)-link-password)
+SMTP password|smtp-password-canary
+API client secret|client_secret["'= :]
+EOF
+}
+
 trap cleanup EXIT
 mkdir -p "${ROOT_DIR}/artifacts/ui-e2e"
 cleanup
@@ -60,15 +85,24 @@ set +e
   set -e
   cd "${ROOT_DIR}/tests/e2e"
   npm ci --ignore-scripts
+  playwright_args=(test)
+  if [[ "${RECIPIENT_QA_ONLY:-0}" == "1" ]]; then
+    playwright_args+=(specs/recipient-retry.spec.js specs/recipient-localization.spec.js)
+  fi
   BASE_URL="http://localhost:${TEST_APP_PORT}" \
   E2E_ADMIN_USERNAME="test-admin" \
   E2E_ADMIN_PASSWORD="test-admin-password-change-me" \
   E2E_BROWSER_CHANNEL="${E2E_BROWSER_CHANNEL:-chrome}" \
   PLAYWRIGHT_AUTH_DIR="${AUTH_DIR}" \
   PLAYWRIGHT_OUTPUT_DIR="${ROOT_DIR}/artifacts/ui-e2e" \
-    npx playwright test
+    npx playwright "${playwright_args[@]}"
 )
 test_status=$?
 set -e
 assert_dev_not_touched
-exit "${test_status}"
+log_status=0
+assert_logs_redacted || log_status=$?
+if [[ "${test_status}" -ne 0 ]]; then
+  exit "${test_status}"
+fi
+exit "${log_status}"

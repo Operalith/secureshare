@@ -10,16 +10,24 @@ test("account theme preference survives navigation reload new tabs and fresh ses
   await gotoPage(page, "/admin");
   const toggle = page.locator("[data-theme-toggle]");
   const themes = ["system", "light", "dark"];
-  const initial = await page.locator("html").getAttribute("data-theme");
-  expect(themes).toContain(initial);
-  const expected = themes[(themes.indexOf(initial) + 1) % themes.length];
-
-  const saved = page.waitForResponse((response) => response.url().endsWith("/api/v1/me/preferences/theme") && response.request().method() === "PUT");
-  await toggle.click();
-  expect((await saved).status()).toBe(200);
+  const targetByProject = {
+    "desktop-1280": "dark",
+    "desktop-1366": "light",
+    "desktop-1440": "system",
+  };
+  const expected = targetByProject[testInfo.project.name] || "dark";
+  expect(themes).toContain(await page.locator("html").getAttribute("data-theme"));
+  for (let attempt = 0; attempt < themes.length; attempt += 1) {
+    if ((await page.locator("html").getAttribute("data-theme")) === expected) break;
+    const saved = page.waitForResponse((response) => response.url().endsWith("/api/v1/me/preferences/theme") && response.request().method() === "PUT");
+    await toggle.click();
+    expect((await saved).status()).toBe(200);
+  }
   await expect(page.locator("html")).toHaveAttribute("data-theme", expected);
   await expect(toggle).toContainText(expected.charAt(0).toUpperCase() + expected.slice(1));
 
+  await gotoPage(page, "/admin/secrets");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", expected);
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", expected);
   const secondPage = await context.newPage();
@@ -45,6 +53,15 @@ test("account theme preference survives navigation reload new tabs and fresh ses
     const freshPage = await freshContext.newPage();
     const freshMonitor = await monitorPage(freshPage, baseURL);
     await gotoPage(freshPage, "/admin/account");
+    await expect(freshPage.locator("html")).toHaveAttribute("data-theme", expected);
+
+    await freshPage.locator("[data-user-menu] summary").click();
+    await freshPage.locator('form[action="/logout"] button[type="submit"]').click();
+    await expect(freshPage).toHaveURL(/\/login$/);
+    await freshPage.locator('input[name="login"]').fill(process.env.E2E_ADMIN_USERNAME || "test-admin");
+    await freshPage.locator('input[name="password"]').fill(process.env.E2E_ADMIN_PASSWORD || "test-admin-password-change-me");
+    await freshPage.locator('[data-login-form] button[type="submit"]').click();
+    await expect(freshPage).toHaveURL(/\/admin$/);
     await expect(freshPage.locator("html")).toHaveAttribute("data-theme", expected);
     freshMonitor.assertClean();
     await freshContext.close();

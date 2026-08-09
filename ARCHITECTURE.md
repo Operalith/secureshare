@@ -82,7 +82,9 @@ sequenceDiagram
   App->>DB: check active and non-expired
   App-->>Browser: may_attempt
   Browser->>App: POST /consume after Reveal click
-  App->>DB: active to consuming with lease
+  App->>DB: verify password and atomically count failure
+  App-->>Browser: 401 retryable when password is wrong below limit
+  App->>DB: active to consuming with lease after password succeeds
   App->>Vault: decrypt ciphertext
   Vault-->>App: plaintext
   App->>DB: consuming to consumed, blank ciphertext
@@ -107,6 +109,10 @@ stateDiagram-v2
 
 Only the holder of `consuming_lease_id` can restore or complete a consuming row.
 
+The public page separately presents one of five explicit UI states: `ready`, `password_error`, `revealing`, `revealed`, or `unavailable`. Wrong-password responses return to an enabled retry form without overlapping the generic unavailable panel. A successful response removes the password and Reveal controls. Missing in-memory tokens, locked attempts, consumed, expired, revoked, and unknown links all use an unavailable presentation without disclosing which condition occurred.
+
+Recipient copy comes from the centralized `internal/publicexperience` catalog. The persisted singleton locale is `en` or `fa`; Go server rendering sets `lang` and `dir`, while localized data attributes supply the same catalog to the small reveal script. Persian pages are RTL, but credential values, code, URLs, and timestamps are LTR-isolated. Locale previews render fake states without creating secret records.
+
 ## Database Model
 
 The `secret_deliveries` table stores:
@@ -121,7 +127,9 @@ The `secret_deliveries` table stores:
 
 It does not store raw tokens or plaintext secrets.
 
-The `users`, `user_sessions`, and `api_clients` tables store local UI identities, only HMAC session-token hashes, and only HMAC API-client secret hashes. They do not store plaintext passwords, session tokens, or API client secrets.
+The `users`, `user_sessions`, and `api_clients` tables store local UI identities, each user's `system`/`light`/`dark` theme preference, only HMAC session-token hashes, and only HMAC API-client secret hashes. Server-rendered authenticated pages read the account preference, so first paint is consistent across tabs, sessions, devices, and logout/login. They do not store plaintext passwords, session tokens, or API client secrets.
+
+The singleton `application_settings` row stores the global public locale (`en` by default or `fa`). It contains no secret, token, recipient, or theme data; locale updates generate safe audit events.
 
 The `email_settings` table stores one global SMTP configuration. SMTP password is stored only as Vault Transit ciphertext. It does not store raw tokens, full one-time URLs, rendered email bodies, SMTP response bodies, or secret payloads.
 

@@ -3,10 +3,16 @@ const { monitorPage } = require("../helpers");
 
 test("wrong link password can be retried without reloading", async ({ page, request, baseURL }, testInfo) => {
   const monitor = await monitorPage(page, baseURL);
+  const projectOctet = 20 + ([...testInfo.project.name].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 180);
+  const forwardedFor = `192.0.2.${projectOctet}`;
+  await page.context().setExtraHTTPHeaders({ "X-Forwarded-For": forwardedFor });
   const marker = `recipient-retry-${testInfo.project.name}-${Date.now()}`;
   const password = "correct-recipient-password";
   const createdResponse = await request.post("/api/v1/secret-links", {
-    headers: { Authorization: `Bearer ${process.env.TEST_SECURESHARE_ADMIN_API_KEY || "test-admin-api-key-change-me"}` },
+    headers: {
+      Authorization: `Bearer ${process.env.TEST_SECURESHARE_ADMIN_API_KEY || "test-admin-api-key-change-me"}`,
+      "X-Forwarded-For": forwardedFor,
+    },
     data: {
       title: `Recipient retry ${marker}`,
       recipient_reference: marker,
@@ -46,6 +52,13 @@ test("wrong link password can be retried without reloading", async ({ page, requ
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "unavailable");
   await expect(page.locator("#unavailable-message")).toContainText("this link is not stored in the browser");
+  await expect(page.locator("#reveal-button")).toBeHidden();
+
+  await page.goto("about:blank");
+  await page.goto(`/s${fragment}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "unavailable");
+  await expect(page.locator("#unavailable-title")).toHaveText("This link is no longer available");
+  await expect(page.locator("#password-wrap")).toBeHidden();
   await expect(page.locator("#reveal-button")).toBeHidden();
   monitor.assertClean();
 });

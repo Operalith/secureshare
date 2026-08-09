@@ -94,6 +94,10 @@ Consume is concurrency-safe:
 
 If Vault decrypt fails, the app restores the row to `active` while the same lease still owns it.
 
+An incorrect link password is checked before the consume lease. Attempts below the configured limit return `401 LINK_PASSWORD_INVALID`, leave the link active, and can be retried in the same page without refresh. The locking attempt and every later request return the same generic unavailable response used for expired, revoked, consumed, and unknown links. Authorized admins and the creating developer can set, replace, or remove protection on an active link; the Argon2id password hash is one-way, the current password is never displayed, and the one-time URL does not change.
+
+The recipient browser removes `#<token>` from the address bar immediately and keeps the raw token only in that page's memory. A refresh of the stripped `/s` URL cannot reveal the secret; reopen the original link. SecureShare intentionally does not persist raw tokens in cookies, Web Storage, IndexedDB, service workers, or another browser cache.
+
 ## Vault Encryption
 
 Local Compose runs Vault dev mode and an idempotent `vault-bootstrap` container. The bootstrap enables the Transit engine and creates the `secureshare` key.
@@ -140,6 +144,10 @@ Swagger UI and the OpenAPI spec are authenticated by default. Set `OPENAPI_PUBLI
 6. Copy the generated one-time URL when manual delivery is needed.
 7. Optionally revoke the link before it is viewed.
 
+The authenticated theme selector saves `system`, `light`, or `dark` to the user's PostgreSQL-backed account preference. The server applies it on first paint in navigation, refreshes, new tabs, new sessions, and after logout/login; it is not stored in browser storage.
+
+Administrators can choose the global public recipient language at `/admin/settings/public-experience`. English (`en`) is the default and Persian (`fa`) renders every recipient state in RTL, while passwords, usernames, API keys, URLs, code, and other technical values remain isolated LTR. Persian uses the local system fallback stack (`Vazirmatn`, `Tahoma`, and sans-serif fallbacks); SecureShare does not download an external font. Recipient dates use the selected locale with the Gregorian calendar.
+
 The admin interface never shows the original secret after creation. Historical rows never reconstruct delivery URLs because raw tokens are not stored.
 
 Email contains only the fragment-based one-time link, expiration context, and safe template text. It never includes the secret payload, link password, token hash, Vault ciphertext, SMTP credentials, or API client secrets. Link scanners and previews do not consume the secret; recipients must press Reveal to POST the token.
@@ -156,9 +164,10 @@ make security-test
 make qa-test
 make ui-navigation-test
 make ui-e2e
+make recipient-qa-test
 ```
 
-`make smoke`, `make integration-test`, `make security-test`, and `make qa-test` run against an isolated Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit on local-only ports. `make ui-e2e` adds pinned Playwright navigation coverage with disposable admin, developer, and viewer fixtures. The wrappers tear test stacks and volumes down after each run so automated tests do not pollute the development dashboard or audit timeline. Failure screenshots, traces, reports, authenticated state, and Node dependencies are Git-ignored.
+`make smoke`, `make integration-test`, `make security-test`, and `make qa-test` run against an isolated Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit on local-only ports. `make ui-e2e` adds pinned Playwright navigation, interaction, theme, and localized recipient coverage with disposable admin, developer, and viewer fixtures. `make recipient-qa-test` is the focused English/Persian recipient and password-retry gate. The wrappers tear test stacks and volumes down after each run so automated tests do not pollute the development dashboard or audit timeline. Failure screenshots, traces, reports, authenticated state, and Node dependencies are Git-ignored.
 
 For optional development SMTP capture:
 

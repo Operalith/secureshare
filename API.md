@@ -58,6 +58,7 @@ Stable codes:
 - `UNAUTHORIZED`
 - `FORBIDDEN`
 - `SECRET_UNAVAILABLE`
+- `LINK_PASSWORD_INVALID`
 - `RATE_LIMITED`
 - `PAYLOAD_TOO_LARGE`
 - `EMAIL_DELIVERY_NOT_CONFIGURED`
@@ -71,7 +72,7 @@ Stable codes:
 - `INTERNAL_ERROR`
 - `DEPENDENCY_UNAVAILABLE`
 
-Recipient token failures always use generic `SECRET_UNAVAILABLE`.
+An incorrect password for an otherwise active link returns `401 LINK_PASSWORD_INVALID` while attempts remain. The configured locking attempt and all unknown, expired, revoked, consumed, or otherwise unavailable token states return generic `410 SECRET_UNAVAILABLE`.
 
 ## POST /api/v1/auth/login
 
@@ -108,6 +109,16 @@ Returns the current browser-authenticated user:
   "role": "developer"
 }
 ```
+
+## GET and PUT /api/v1/me/preferences/theme
+
+Cookie-session users can read and update their account theme preference. `PUT` requires the session CSRF token and accepts only:
+
+```json
+{"theme":"system"}
+```
+
+Valid values are `system`, `light`, and `dark`. The preference is stored server-side and is used for first-paint rendering in every session; no browser storage is used.
 
 ## POST /api/v1/auth/logout
 
@@ -294,6 +305,21 @@ curl -sS -X POST http://localhost:8080/api/v1/secret-links/<id>/revoke \
 
 Revocation is idempotent. Revoking an active or consuming link blanks ciphertext immediately. Revoking a consumed link does not rewrite consume history.
 
+## PUT and DELETE /api/v1/secret-links/{id}/password
+
+Requires `secret:manage-protection`. Admins and scoped API clients may manage any link; a developer may manage only a link they created. The link must still be active, unconsumed, unexpired, and not revoked.
+
+Set or replace protection:
+
+```bash
+curl -sS -X PUT http://localhost:8080/api/v1/secret-links/$DELIVERY_ID/password \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -H 'Content-Type: application/json' \
+  --data '{"password":"replacement-passphrase"}'
+```
+
+Remove protection with `DELETE` on the same endpoint. Both return safe protection status, keep the same one-time URL, and never return the current password. Replacement stores a new Argon2id hash and resets failed attempts; removal clears the password hash and attempt counter.
+
 ## POST /api/v1/admin/cleanup
 
 Requires `secret:revoke`.
@@ -461,6 +487,21 @@ Success:
 
 `secret` is a backward-compatible projection. New clients should read `payload`.
 
+Incorrect password while attempts remain:
+
+```http
+HTTP/1.1 401 Unauthorized
+```
+
+```json
+{
+  "code": "LINK_PASSWORD_INVALID",
+  "message": "The link password is incorrect."
+}
+```
+
+Password verification and failure accounting happen before a consume lease is acquired, so this response is retryable in the same recipient page. On the configured locking attempt the response becomes generic `SECRET_UNAVAILABLE`.
+
 Unavailable:
 
 ```http
@@ -473,6 +514,16 @@ HTTP/1.1 410 Gone
   "message": "This secret has expired, was revoked, or has already been viewed."
 }
 ```
+
+## GET and PUT /api/v1/settings/public-experience
+
+Admin cookie session only; `PUT` also requires CSRF. The singleton setting accepts `en` or `fa` and controls all server-rendered public recipient states:
+
+```json
+{"public_locale":"fa"}
+```
+
+The management page is `/admin/settings/public-experience`; safe fake-data previews are available beneath that page for `ready`, `revealed`, and `unavailable`. Previews do not create a secret or raw token.
 
 ## Health and Metrics
 

@@ -15,6 +15,7 @@ Use safe, isolated data. Never capture real credentials, recipient addresses, SM
 - [ ] `make security-test`
 - [ ] `make qa-test`
 - [ ] `make ui-e2e`
+- [ ] `make recipient-qa-test`
 
 `make ui-e2e` must use the isolated test project, remove disposable volumes, and leave development dashboard/audit data unchanged.
 
@@ -29,6 +30,8 @@ Use safe, isolated data. Never capture real credentials, recipient addresses, SM
 | API Clients | Yes | No | No |
 | Users | Yes | No | No |
 | Email Settings | Yes | No | No |
+| Public Experience | Yes | No | No |
+| Manage link password | Yes | Own links | No |
 | System Status | Yes | No | Yes |
 | API Documentation | Yes | Yes | Yes |
 | Help | Yes | Yes | Yes |
@@ -52,6 +55,7 @@ Use safe, isolated data. Never capture real credentials, recipient addresses, SM
 | `/admin/users` | `users` |
 | `/admin/users/{id}` | `users` |
 | `/admin/settings/email` | `email-settings` |
+| `/admin/settings/public-experience` | `public-experience` |
 | `/admin/status` and `/admin/system` | `system-status` |
 | `/docs` | `api-docs` |
 | `/admin/help` | `help` |
@@ -104,6 +108,25 @@ Check 375×812, 390×844, and 768×1024.
 - [ ] Unauthenticated protected requests redirect to `/login`.
 - [ ] Failed dashboard/list/dependency data does not remove shell controls.
 - [ ] Empty lists remain readable and do not collapse the layout.
+
+## Recipient State and Localization Matrix
+
+- [ ] In English and Persian, cover `ready`, `password_error`, `revealed`, session-lost unavailable, and consumed unavailable.
+- [ ] A wrong password shows the localized inline error, leaves exactly one panel visible, focuses the field, and re-enables Reveal without refresh.
+- [ ] A successful retry displays the secret exactly once and removes the password input, Reveal button, and transient Revealing label.
+- [ ] Refreshing stripped `/s` shows session-lost guidance; reopening the original consumed link shows generic unavailable.
+- [ ] Generic unavailable never shows password or Reveal controls and does not disclose consumed/expired/revoked/locked/unknown status.
+- [ ] English uses `lang=en`/`dir=ltr`; Persian uses `lang=fa`/`dir=rtl`.
+- [ ] Technical credential values are computed LTR with bidi isolation and are not visually reversed.
+- [ ] Recipient cards fit 375×812, 390×844, 768×1024, 1366×768, 1440×900, and 1920×1080 without horizontal overflow.
+- [ ] Persian uses the documented local fallback stack and produces no external font request or font 404.
+
+## Interaction Persistence
+
+- [ ] The credential builder keeps Username while adding Password and API Key, rejects duplicate Username inline, leaves the dropdown usable, and accepts a custom field.
+- [ ] Password replacement never renders the current password; the old password fails and the replacement works on an unconsumed fixture.
+- [ ] Password removal permits password-free reveal on a separate active fixture.
+- [ ] Each `system`, `light`, and `dark` theme persists where practical across navigation, a new tab, refresh, and logout/login.
 
 ## Assets, Fonts, Console, and Network
 
