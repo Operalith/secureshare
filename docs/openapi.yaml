@@ -73,6 +73,47 @@ paths:
                 $ref: '#/components/schemas/CurrentUser'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/me/preferences/theme:
+    get:
+      tags: [Authentication]
+      summary: Get the authenticated user's theme preference
+      description: Returns the server-side account preference used for first-paint rendering in every session and device.
+      security:
+        - CookieSession: []
+      responses:
+        '200':
+          description: Current theme preference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThemePreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Authentication]
+      summary: Update the authenticated user's theme preference
+      description: Persists `system`, `light`, or `dark` to the user account. Browser sessions must send `X-CSRF-Token`.
+      security:
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThemePreference'
+      responses:
+        '200':
+          description: Saved theme preference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThemePreference'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/me/password:
     post:
       tags: [Current User]
@@ -1113,6 +1154,17 @@ components:
         role:
           type: string
           enum: [admin, developer, viewer]
+        theme_preference:
+          type: string
+          enum: [system, light, dark]
+    ThemePreference:
+      type: object
+      required: [theme]
+      additionalProperties: false
+      properties:
+        theme:
+          type: string
+          enum: [system, light, dark]
     ChangePasswordRequest:
       type: object
       required: [current_password, new_password]

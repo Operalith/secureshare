@@ -80,6 +80,36 @@ func TestAuthenticateRejectsInvalidAndDisabledUsers(t *testing.T) {
 	}
 }
 
+func TestThemePreferencePersistsAcrossExistingSessions(t *testing.T) {
+	store := NewMemoryStore()
+	user, err := store.CreateUser(context.Background(), UserCreate{
+		Username: "theme-user", Email: "theme-user@example.local", Password: "correct passphrase", Role: RoleDeveloper, Status: StatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ThemePreference != ThemeSystem {
+		t.Fatalf("default theme = %q, want system", user.ThemePreference)
+	}
+	manager := NewSessionManager("test-session-secret-with-enough-length", "test-csrf-secret-with-enough-length", time.Hour, time.Hour, false).WithStore(store)
+	rec := httptest.NewRecorder()
+	if _, err := manager.CreateForUser(context.Background(), rec, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetThemePreference(context.Background(), user.ID, ThemeDark); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/admin", nil)
+	req.AddCookie(rec.Result().Cookies()[0])
+	session, ok := manager.FromRequest(req)
+	if !ok || session.ThemePreference != ThemeDark {
+		t.Fatalf("existing session theme = %q ok=%v, want dark", session.ThemePreference, ok)
+	}
+	if _, err := store.SetThemePreference(context.Background(), user.ID, "sepia"); err == nil {
+		t.Fatal("invalid theme preference was accepted")
+	}
+}
+
 func TestDatabaseBackedSessionExpiryAndIdleTimeout(t *testing.T) {
 	store := NewMemoryStore()
 	user, err := store.CreateUser(context.Background(), UserCreate{

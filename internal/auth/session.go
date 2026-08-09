@@ -17,16 +17,17 @@ import (
 const CookieName = "ss_session"
 
 type Session struct {
-	ID          string
-	SessionID   uuid.UUID
-	UserID      uuid.UUID
-	ActorID     string
-	Username    string
-	Email       string
-	Role        string
-	Permissions map[string]bool
-	ExpiresAt   time.Time
-	LastSeenAt  time.Time
+	ID              string
+	SessionID       uuid.UUID
+	UserID          uuid.UUID
+	ActorID         string
+	Username        string
+	Email           string
+	Role            string
+	ThemePreference string
+	Permissions     map[string]bool
+	ExpiresAt       time.Time
+	LastSeenAt      time.Time
 }
 
 type SessionManager struct {
@@ -67,11 +68,12 @@ func (m *SessionManager) Create(w http.ResponseWriter, actorID string, permissio
 		perms[permission] = true
 	}
 	session := Session{
-		ID:          id,
-		ActorID:     actorID,
-		Permissions: perms,
-		ExpiresAt:   time.Now().Add(m.ttl),
-		LastSeenAt:  time.Now(),
+		ID:              id,
+		ActorID:         actorID,
+		ThemePreference: ThemeSystem,
+		Permissions:     perms,
+		ExpiresAt:       time.Now().Add(m.ttl),
+		LastSeenAt:      time.Now(),
 	}
 	m.mu.Lock()
 	m.items[id] = session
@@ -96,16 +98,17 @@ func (m *SessionManager) CreateForUser(ctx context.Context, w http.ResponseWrite
 		return Session{}, err
 	}
 	session := Session{
-		ID:          id,
-		SessionID:   sessionID,
-		UserID:      user.ID,
-		ActorID:     user.Username,
-		Username:    user.Username,
-		Email:       user.Email,
-		Role:        user.Role,
-		Permissions: permissionsMap(PermissionsForRole(user.Role)),
-		ExpiresAt:   expiresAt,
-		LastSeenAt:  now,
+		ID:              id,
+		SessionID:       sessionID,
+		UserID:          user.ID,
+		ActorID:         user.Username,
+		Username:        user.Username,
+		Email:           user.Email,
+		Role:            user.Role,
+		ThemePreference: user.ThemePreference,
+		Permissions:     permissionsMap(PermissionsForRole(user.Role)),
+		ExpiresAt:       expiresAt,
+		LastSeenAt:      now,
 	}
 	http.SetCookie(w, m.cookie(id, session.ExpiresAt))
 	return session, nil
@@ -150,16 +153,17 @@ func (m *SessionManager) FromRequest(r *http.Request) (Session, bool) {
 			return Session{}, false
 		}
 		return Session{
-			ID:          id,
-			SessionID:   sessionID,
-			UserID:      user.ID,
-			ActorID:     user.Username,
-			Username:    user.Username,
-			Email:       user.Email,
-			Role:        user.Role,
-			Permissions: permissionsMap(PermissionsForRole(user.Role)),
-			ExpiresAt:   expiresAt,
-			LastSeenAt:  lastSeenAt,
+			ID:              id,
+			SessionID:       sessionID,
+			UserID:          user.ID,
+			ActorID:         user.Username,
+			Username:        user.Username,
+			Email:           user.Email,
+			Role:            user.Role,
+			ThemePreference: user.ThemePreference,
+			Permissions:     permissionsMap(PermissionsForRole(user.Role)),
+			ExpiresAt:       expiresAt,
+			LastSeenAt:      lastSeenAt,
 		}, true
 	}
 	m.mu.RLock()

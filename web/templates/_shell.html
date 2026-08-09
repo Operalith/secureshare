@@ -37,7 +37,7 @@
   <div class="header-actions">
     <span class="env-pill">{{ .Env }}</span>
     {{ if .Authenticated }}
-    <button type="button" class="ghost compact theme-control" data-theme-toggle aria-label="Switch color theme">Theme</button>
+    <button type="button" class="ghost compact theme-control" data-theme-toggle data-theme-preference="{{ .ThemePreference }}" aria-label="Color theme: {{ .ThemeLabel }}">Theme: {{ .ThemeLabel }}</button>
     <details class="user-menu" data-user-menu>
       <summary class="user-pill" aria-label="Open user menu"><span class="user-menu-name">{{ .ActorID }}</span><span aria-hidden="true">▾</span></summary>
       <div class="user-menu-panel" role="menu">

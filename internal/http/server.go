@@ -172,6 +172,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("/api/v1/me", s.handleMe)
+	mux.HandleFunc("/api/v1/me/preferences/theme", s.handleThemePreference)
 	mux.HandleFunc("/api/v1/me/password", s.handleChangePassword)
 	mux.HandleFunc("/api/v1/me/sessions", s.handleMySessions)
 	mux.HandleFunc("/api/v1/me/sessions/revoke-other", s.handleRevokeOtherSessions)
@@ -678,11 +679,50 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{
-		"id":       session.UserID,
-		"username": session.Username,
-		"email":    session.Email,
-		"role":     session.Role,
+		"id":               session.UserID,
+		"username":         session.Username,
+		"email":            session.Email,
+		"role":             session.Role,
+		"theme_preference": session.ThemePreference,
 	})
+}
+
+func (s *Server) handleThemePreference(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.auth.FromRequest(r)
+	if !ok || !session.Permissions["account:manage"] {
+		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+		return
+	}
+	if r.Method == http.MethodGet {
+		s.writeJSON(w, http.StatusOK, map[string]any{"theme": normalizedThemePreference(session.ThemePreference)})
+		return
+	}
+	if r.Method != http.MethodPut {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.validCSRF(r, session) {
+		s.recordCSRFFailure()
+		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		Theme string `json:"theme"`
+	}
+	if !s.decodeJSON(w, r, 1024, &body) {
+		return
+	}
+	body.Theme = strings.TrimSpace(strings.ToLower(body.Theme))
+	if !auth.ValidThemePreference(body.Theme) {
+		s.writeError(w, delivery.CodeInvalidRequest, "Theme must be system, light, or dark.", http.StatusBadRequest)
+		return
+	}
+	user, err := s.users.SetThemePreference(r.Context(), session.UserID, body.Theme)
+	if err != nil {
+		s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"theme": user.ThemePreference})
 }
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -1906,11 +1946,31 @@ func (s *Server) authenticatedPageData(r *http.Request, session auth.Session, va
 	values["Role"] = session.Role
 	values["Permissions"] = session.Permissions
 	values["Authenticated"] = true
+	values["ThemePreference"] = normalizedThemePreference(session.ThemePreference)
+	values["ThemeLabel"] = themePreferenceLabel(session.ThemePreference)
 	values["Navigation"] = model
 	if s.cfg.AppEnv == "development" {
 		s.logger.Debug("ui navigation resolved", "item_ids", navigationItemIDs(model), "active_item_id", activeNavigationID(r.URL.Path))
 	}
 	return values
+}
+
+func normalizedThemePreference(theme string) string {
+	if auth.ValidThemePreference(theme) {
+		return theme
+	}
+	return auth.ThemeSystem
+}
+
+func themePreferenceLabel(theme string) string {
+	switch normalizedThemePreference(theme) {
+	case auth.ThemeLight:
+		return "Light"
+	case auth.ThemeDark:
+		return "Dark"
+	default:
+		return "System"
+	}
 }
 
 func (s *Server) renderPageError(w http.ResponseWriter, r *http.Request, status int, title, message string) {

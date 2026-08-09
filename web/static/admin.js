@@ -50,11 +50,39 @@
 
   function setupTheme() {
     qsa("[data-theme-toggle]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const current = document.documentElement.dataset.theme;
-        const next = current === "dark" ? "light" : "dark";
-        document.documentElement.dataset.theme = next;
-        toast(`${next === "dark" ? "Dark" : "Light"} mode enabled for this page.`);
+      const themes = ["system", "light", "dark"];
+      const label = (theme) => theme.charAt(0).toUpperCase() + theme.slice(1);
+      button.addEventListener("click", async () => {
+        const current = themes.includes(document.documentElement.dataset.theme) ? document.documentElement.dataset.theme : "system";
+        const next = themes[(themes.indexOf(current) + 1) % themes.length];
+        let savedTheme = "";
+        setButtonLoading(button, true);
+        try {
+          const response = await fetch("/api/v1/me/preferences/theme", {
+            method: "PUT",
+            credentials: "same-origin",
+            headers: csrfHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ theme: next }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            toast(body.message || "Theme preference could not be saved.");
+            return;
+          }
+          savedTheme = body.theme;
+        } catch {
+          toast("Theme preference could not be saved. Check your connection and try again.");
+        } finally {
+          setButtonLoading(button, false);
+        }
+        if (savedTheme) {
+          document.documentElement.dataset.theme = savedTheme;
+          button.dataset.themePreference = savedTheme;
+          button.textContent = `Theme: ${label(savedTheme)}`;
+          button.dataset.originalText = button.textContent;
+          button.setAttribute("aria-label", `Color theme: ${label(savedTheme)}`);
+          toast(`${label(savedTheme)} theme saved to your account.`);
+        }
       });
     });
   }

@@ -25,6 +25,7 @@ required_paths = %w[
   /api/v1/auth/login
   /api/v1/auth/logout
   /api/v1/me
+  /api/v1/me/preferences/theme
   /api/v1/secret-links
   /api/v1/secret-links/{id}
   /api/v1/secret-links/{id}/revoke
@@ -84,6 +85,7 @@ required_schemas = %w[
   ErrorResponse
   DashboardResponse
   CurrentUser
+  ThemePreference
   APIClient
   CreateAPIClientRequest
   CreateAPIClientResponse

@@ -89,6 +89,68 @@ func TestCreateFormRenderingModes(t *testing.T) {
 	}
 }
 
+func TestThemePreferencePersistsAcrossPagesAndSessions(t *testing.T) {
+	app := testServer()
+	firstCookie, firstCSRF := loginSession(t, app, "admin", "change-me-now")
+
+	put := httptest.NewRequest(http.MethodPut, "/api/v1/me/preferences/theme", strings.NewReader(`{"theme":"dark"}`))
+	put.Header.Set("Content-Type", "application/json")
+	put.Header.Set("X-CSRF-Token", firstCSRF)
+	put.AddCookie(firstCookie)
+	putRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(putRec, put)
+	if putRec.Code != http.StatusOK || !strings.Contains(putRec.Body.String(), `"theme":"dark"`) {
+		t.Fatalf("save dark theme = %d: %s", putRec.Code, putRec.Body.String())
+	}
+
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/account"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(firstCookie)
+		rec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<html lang="en" data-theme="dark">`) || !strings.Contains(rec.Body.String(), `Theme: Dark`) {
+			t.Fatalf("%s did not server-render dark theme: %s", path, rec.Body.String())
+		}
+	}
+
+	secondCookie, _ := loginSession(t, app, "admin", "change-me-now")
+	secondReq := httptest.NewRequest(http.MethodGet, "/admin/secrets", nil)
+	secondReq.AddCookie(secondCookie)
+	secondRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusOK || !strings.Contains(secondRec.Body.String(), `data-theme="dark"`) {
+		t.Fatalf("second session did not inherit persisted theme: %s", secondRec.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/me/preferences/theme", nil)
+	get.AddCookie(secondCookie)
+	getRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(getRec, get)
+	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), `"theme":"dark"`) {
+		t.Fatalf("get theme = %d: %s", getRec.Code, getRec.Body.String())
+	}
+
+	invalid := httptest.NewRequest(http.MethodPut, "/api/v1/me/preferences/theme", strings.NewReader(`{"theme":"sepia"}`))
+	invalid.Header.Set("Content-Type", "application/json")
+	invalid.Header.Set("X-CSRF-Token", firstCSRF)
+	invalid.AddCookie(firstCookie)
+	invalidRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(invalidRec, invalid)
+	if invalidRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid theme = %d, want 400", invalidRec.Code)
+	}
+
+	javascript, err := os.ReadFile("../../web/static/admin.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"localStorage", "sessionStorage", "indexedDB"} {
+		if strings.Contains(string(javascript), forbidden) {
+			t.Fatalf("theme preference must not use browser persistence: found %s", forbidden)
+		}
+	}
+}
+
 func TestCredentialPayloadFieldsDoNotMutateAPIClients(t *testing.T) {
 	app, store := testServerWithDeliveryStore(nil)
 	cookie, csrf := loginSession(t, app, "admin", "change-me-now")

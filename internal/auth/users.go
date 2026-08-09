@@ -26,6 +26,10 @@ const (
 
 	StatusActive   = "active"
 	StatusDisabled = "disabled"
+
+	ThemeSystem = "system"
+	ThemeLight  = "light"
+	ThemeDark   = "dark"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
@@ -37,6 +41,7 @@ type User struct {
 	Role                string     `json:"role"`
 	Status              string     `json:"status"`
 	ForcePasswordChange bool       `json:"force_password_change"`
+	ThemePreference     string     `json:"theme_preference"`
 	LastLoginAt         *time.Time `json:"last_login_at,omitempty"`
 	PasswordChangedAt   *time.Time `json:"password_changed_at,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
@@ -84,6 +89,7 @@ type UserStore interface {
 	UpdateUser(context.Context, uuid.UUID, UserPatch) (User, error)
 	SetUserStatus(context.Context, uuid.UUID, string) (User, error)
 	SetPassword(context.Context, uuid.UUID, string, bool) error
+	SetThemePreference(context.Context, uuid.UUID, string) (User, error)
 	TouchLastLogin(context.Context, uuid.UUID) error
 	CreateSession(context.Context, uuid.UUID, []byte, time.Time, time.Time) (uuid.UUID, error)
 	SessionByHash(context.Context, []byte, time.Time, time.Duration) (User, uuid.UUID, time.Time, time.Time, error)
@@ -148,6 +154,10 @@ func ValidRole(role string) bool {
 
 func ValidStatus(status string) bool {
 	return status == StatusActive || status == StatusDisabled
+}
+
+func ValidThemePreference(theme string) bool {
+	return theme == ThemeSystem || theme == ThemeLight || theme == ThemeDark
 }
 
 func ValidateUserPassword(password string, production bool) error {
@@ -231,10 +241,11 @@ func (r *Repository) CreateUser(ctx context.Context, params UserCreate) (User, e
 	err = r.db.QueryRow(ctx, `
 		INSERT INTO users (id, username, email, password_hash, role, status, force_password_change, password_changed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		RETURNING id, username, email, role, status, force_password_change,
+		RETURNING id, username, email, role, status, force_password_change, theme_preference,
 			last_login_at, password_changed_at, created_at, updated_at
 	`, id, params.Username, params.Email, hash, params.Role, params.Status, params.ForcePasswordChange).Scan(
 		&user.ID, &user.Username, &user.Email, &user.Role, &user.Status, &user.ForcePasswordChange,
+		&user.ThemePreference,
 		&user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	return user, err
@@ -246,12 +257,12 @@ func (r *Repository) UserForLogin(ctx context.Context, login string) (UserWithPa
 	login = NormalizeLogin(login)
 	var user UserWithPassword
 	err := r.db.QueryRow(ctx, `
-		SELECT id, username, email, password_hash, role, status, force_password_change,
+		SELECT id, username, email, password_hash, role, status, force_password_change, theme_preference,
 			last_login_at, password_changed_at, created_at, updated_at
 		FROM users
 		WHERE lower(username) = $1 OR lower(email) = $1
 	`, login).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Role, &user.Status,
-		&user.ForcePasswordChange, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
+		&user.ForcePasswordChange, &user.ThemePreference, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return UserWithPassword{}, ErrInvalidCredentials
 	}
@@ -263,10 +274,10 @@ func (r *Repository) UserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	defer cancel()
 	var user User
 	err := r.db.QueryRow(ctx, `
-		SELECT id, username, email, role, status, force_password_change,
+		SELECT id, username, email, role, status, force_password_change, theme_preference,
 			last_login_at, password_changed_at, created_at, updated_at
 		FROM users WHERE id = $1
-	`, id).Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.Status, &user.ForcePasswordChange,
+	`, id).Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.Status, &user.ForcePasswordChange, &user.ThemePreference,
 		&user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
 	return user, err
 }
@@ -275,7 +286,7 @@ func (r *Repository) ListUsers(ctx context.Context) ([]User, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT id, username, email, role, status, force_password_change,
+		SELECT id, username, email, role, status, force_password_change, theme_preference,
 			last_login_at, password_changed_at, created_at, updated_at
 		FROM users ORDER BY created_at DESC, username ASC
 	`)
@@ -287,7 +298,7 @@ func (r *Repository) ListUsers(ctx context.Context) ([]User, error) {
 	for rows.Next() {
 		var user User
 		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.Status,
-			&user.ForcePasswordChange, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			&user.ForcePasswordChange, &user.ThemePreference, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -330,10 +341,10 @@ func (r *Repository) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPat
 		UPDATE users
 		SET username = $2, email = $3, role = $4, status = $5, force_password_change = $6
 		WHERE id = $1
-		RETURNING id, username, email, role, status, force_password_change,
+		RETURNING id, username, email, role, status, force_password_change, theme_preference,
 			last_login_at, password_changed_at, created_at, updated_at
 	`, id, username, email, role, status, force).Scan(&user.ID, &user.Username, &user.Email, &user.Role,
-		&user.Status, &user.ForcePasswordChange, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
+		&user.Status, &user.ForcePasswordChange, &user.ThemePreference, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
 	return user, err
 }
 
@@ -356,6 +367,23 @@ func (r *Repository) SetPassword(ctx context.Context, id uuid.UUID, password str
 		WHERE id = $1
 	`, id, hash, forceChange)
 	return err
+}
+
+func (r *Repository) SetThemePreference(ctx context.Context, id uuid.UUID, theme string) (User, error) {
+	if !ValidThemePreference(theme) {
+		return User{}, errors.New("invalid theme preference")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var user User
+	err := r.db.QueryRow(ctx, `
+		UPDATE users SET theme_preference = $2
+		WHERE id = $1
+		RETURNING id, username, email, role, status, force_password_change, theme_preference,
+			last_login_at, password_changed_at, created_at, updated_at
+	`, id, theme).Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.Status,
+		&user.ForcePasswordChange, &user.ThemePreference, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
+	return user, err
 }
 
 func (r *Repository) TouchLastLogin(ctx context.Context, id uuid.UUID) error {
@@ -401,10 +429,10 @@ func (r *Repository) SessionByHash(ctx context.Context, tokenHash []byte, now ti
 		  AND user_sessions.last_seen_at > $2 - make_interval(secs => $3)
 		  AND users.status = 'active'
 		RETURNING user_sessions.id, user_sessions.expires_at, user_sessions.last_seen_at,
-			users.id, users.username, users.email, users.role, users.status, users.force_password_change,
+			users.id, users.username, users.email, users.role, users.status, users.force_password_change, users.theme_preference,
 			users.last_login_at, users.password_changed_at, users.created_at, users.updated_at
 	`, tokenHash, now, idleSeconds).Scan(&sessionID, &expiresAt, &lastSeenAt, &user.ID, &user.Username, &user.Email,
-		&user.Role, &user.Status, &user.ForcePasswordChange, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
+		&user.Role, &user.Status, &user.ForcePasswordChange, &user.ThemePreference, &user.LastLoginAt, &user.PasswordChangedAt, &user.CreatedAt, &user.UpdatedAt)
 	return user, sessionID, expiresAt, lastSeenAt, err
 }
 
@@ -515,6 +543,7 @@ func (m *MemoryStore) CreateUser(_ context.Context, params UserCreate) (User, er
 			Role:                params.Role,
 			Status:              params.Status,
 			ForcePasswordChange: params.ForcePasswordChange,
+			ThemePreference:     ThemeSystem,
 			CreatedAt:           now,
 			UpdatedAt:           now,
 			PasswordChangedAt:   &now,
@@ -617,6 +646,22 @@ func (m *MemoryStore) SetPassword(_ context.Context, id uuid.UUID, password stri
 	record.UpdatedAt = now
 	m.users[id] = record
 	return nil
+}
+
+func (m *MemoryStore) SetThemePreference(_ context.Context, id uuid.UUID, theme string) (User, error) {
+	if !ValidThemePreference(theme) {
+		return User{}, errors.New("invalid theme preference")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	record, ok := m.users[id]
+	if !ok {
+		return User{}, pgx.ErrNoRows
+	}
+	record.ThemePreference = theme
+	record.UpdatedAt = time.Now().UTC()
+	m.users[id] = record
+	return record.User, nil
 }
 
 func (m *MemoryStore) TouchLastLogin(_ context.Context, id uuid.UUID) error {
