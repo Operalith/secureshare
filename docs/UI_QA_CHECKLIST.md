@@ -119,7 +119,8 @@ Check 375×812, 390×844, and 768×1024.
 - [ ] English uses `lang=en`/`dir=ltr`; Persian uses `lang=fa`/`dir=rtl`.
 - [ ] Technical credential values are computed LTR with bidi isolation and are not visually reversed.
 - [ ] Recipient cards fit 375×812, 390×844, 768×1024, 1366×768, 1440×900, and 1920×1080 without horizontal overflow.
-- [ ] Persian uses the documented local fallback stack and produces no external font request or font 404.
+- [ ] Persian loads local Vazirmatn with computed family first, `document.fonts` reports it loaded, and the request returns 200 with `font/woff2`.
+- [ ] Main recipient titles stay within 28–33.6px for Persian and 28.8–36px for English; secondary state titles stay within 22.4–28px.
 
 ## Interaction Persistence
 
@@ -132,7 +133,7 @@ Check 375×812, 390×844, and 768×1024.
 
 - [ ] Local CSS, JavaScript, Swagger assets, and favicons return 200 after redirects.
 - [ ] There are no external CSS, JavaScript, font, analytics, or unexpected network requests.
-- [ ] Any bundled `.woff2` response uses `font/woff2`; if no font binaries are present, verify the documented system fallback stack.
+- [ ] `/static/fonts/Vazirmatn-Variable.woff2` returns 200 with `font/woff2` and CSP includes `font-src 'self'`.
 - [ ] CSP produces no application violation; local Swagger styles use only the allowed hash.
 - [ ] No unhandled JavaScript error or unexpected authenticated asset 401 occurs.
 - [ ] Font/image/script/style requests have no 404 or failed request.

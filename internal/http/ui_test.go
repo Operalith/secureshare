@@ -665,6 +665,10 @@ func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 	}
 	css := string(cssBytes)
 	for _, want := range []string{
+		`@font-face`,
+		`font-family: "Vazirmatn"`,
+		`url("/static/fonts/Vazirmatn-Variable.woff2")`,
+		`font-weight: 100 900`,
 		`--font-sans: -apple-system`,
 		`--font-persian:`,
 		`--font-mono: ui-monospace`,
@@ -682,15 +686,27 @@ func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 			t.Fatalf("styles.css contains external font reference %q", forbidden)
 		}
 	}
-	if _, err := os.Stat("../../web/static/fonts/README.md"); err != nil {
-		t.Fatalf("local fonts directory documentation missing: %v", err)
+	for _, path := range []string{"../../web/static/fonts/README.md", "../../web/static/fonts/OFL.txt"} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("local font documentation missing: %v", err)
+		}
+	}
+	fontInfo, err := os.Stat("../../web/static/fonts/Vazirmatn-Variable.woff2")
+	if err != nil {
+		t.Fatalf("local Vazirmatn variable font missing: %v", err)
+	}
+	if fontInfo.Size() < 100_000 {
+		t.Fatalf("local Vazirmatn variable font is unexpectedly small: %d bytes", fontInfo.Size())
 	}
 	app := testServer()
-	for _, path := range []string{"/static/styles.css", "/static/admin.js", "/static/reveal.js"} {
+	for _, path := range []string{"/static/styles.css", "/static/admin.js", "/static/reveal.js", "/static/fonts/Vazirmatn-Variable.woff2"} {
 		rec := httptest.NewRecorder()
 		app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s status = %d, want 200", path, rec.Code)
+		}
+		if strings.HasSuffix(path, ".woff2") && rec.Header().Get("Content-Type") != "font/woff2" {
+			t.Fatalf("%s Content-Type = %q, want font/woff2", path, rec.Header().Get("Content-Type"))
 		}
 	}
 	for _, path := range []string{"../../web/templates/new_secret.html", "../../web/templates/secret_detail.html", "../../web/templates/account.html", "../../web/static/reveal.js"} {

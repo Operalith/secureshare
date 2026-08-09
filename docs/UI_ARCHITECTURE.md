@@ -86,7 +86,7 @@ The theme control cycles `system`, `light`, and `dark` through `/api/v1/me/prefe
 
 `/s` is a server-rendered page outside the authenticated shell. `internal/publicexperience` owns the English/Persian catalog, locale validation, text direction, and localized Gregorian date formatting. The reveal script consumes localized strings embedded by the server and displays exactly one explicit state panel: `ready`, `password_error`, `revealing`, `revealed`, or `unavailable`.
 
-The browser removes the fragment and keeps its raw token only in page memory. Wrong passwords preserve that in-memory token and return the form to an enabled retry state; success removes all reveal controls. Refresh loses the token and shows the safe session-lost variant of unavailable. The Persian page uses RTL layout with LTR/isolate rules on technical values and a system fallback font stack; it fetches no external asset.
+The browser removes the fragment and keeps its raw token only in page memory. Wrong passwords preserve that in-memory token and return the form to an enabled retry state; success removes all reveal controls. Refresh loses the token and shows the safe session-lost variant of unavailable. The Persian page uses RTL layout and locally hosted Vazirmatn, with LTR/isolate rules and the monospace stack preserved on technical values. No external font or stylesheet is fetched.
 
 ## Logout
 
