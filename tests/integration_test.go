@@ -379,6 +379,84 @@ func TestUnavailableAndUnauthorizedIntegration(t *testing.T) {
 	}
 }
 
+func TestPublicExperienceSettingsIntegration(t *testing.T) {
+	client := integrationClient(t)
+	loginPayload, err := json.Marshal(map[string]string{
+		"login": "test-admin", "password": "test-admin-password-change-me",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginReq, err := http.NewRequest(http.MethodPost, client.baseURL+"/api/v1/auth/login", bytes.NewReader(loginPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginResp, err := client.http.Do(loginReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer loginResp.Body.Close()
+	var loginBody map[string]any
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginBody); err != nil {
+		t.Fatal(err)
+	}
+	if loginResp.StatusCode != http.StatusOK || len(loginResp.Cookies()) == 0 {
+		t.Fatalf("admin login = %d %#v", loginResp.StatusCode, loginBody)
+	}
+	csrf, _ := loginBody["csrf_token"].(string)
+	sessionCookie := loginResp.Cookies()[0]
+	headers := map[string]string{
+		"Cookie": sessionCookie.Name + "=" + sessionCookie.Value, "X-CSRF-Token": csrf,
+	}
+
+	status, settings := client.putJSON(t, "/api/v1/settings/public-experience", map[string]string{"public_locale": "fa"}, headers)
+	if status != http.StatusOK || settings["public_locale"] != "fa" {
+		t.Fatalf("set Persian public experience = %d %#v", status, settings)
+	}
+	defer func() {
+		status, body := client.putJSON(t, "/api/v1/settings/public-experience", map[string]string{"public_locale": "en"}, headers)
+		if status != http.StatusOK || body["public_locale"] != "en" {
+			t.Fatalf("restore English public experience = %d %#v", status, body)
+		}
+	}()
+
+	pageResp, err := client.http.Get(client.baseURL + "/s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := io.ReadAll(pageResp.Body)
+	_ = pageResp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pageResp.StatusCode != http.StatusOK || !strings.Contains(string(page), `<html lang="fa" dir="rtl">`) || !strings.Contains(string(page), "یک اطلاعات محرمانه برای شما ارسال شده است") {
+		t.Fatalf("Persian public page = %d: %s", pageResp.StatusCode, page)
+	}
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, client.databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	var count int
+	var locale string
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*), MIN(public_locale) FROM application_settings`).Scan(&count, &locale); err != nil {
+		t.Fatalf("query application settings failed: %v", err)
+	}
+	if count != 1 || locale != "fa" {
+		t.Fatalf("application settings rows=%d locale=%q, want singleton fa", count, locale)
+	}
+	var auditCount int
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE event_type = 'application.public_locale_updated' AND result = 'fa'`).Scan(&auditCount); err != nil {
+		t.Fatalf("query locale audit failed: %v", err)
+	}
+	if auditCount < 1 {
+		t.Fatal("Persian locale update was not audited")
+	}
+}
+
 func TestRateLimitIntegration(t *testing.T) {
 	client := integrationClient(t)
 	token := "rate-limit-token"

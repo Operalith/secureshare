@@ -612,6 +612,49 @@ paths:
                 $ref: '#/components/schemas/EmailErrorResponse'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/settings/public-experience:
+    get:
+      tags: [Application Settings]
+      summary: Read the global public recipient language
+      description: Admin session only. Returns the language used to server-render recipient-facing secret pages.
+      security:
+        - CookieSession: []
+      responses:
+        '200':
+          description: Current public experience settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicExperienceSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [Application Settings]
+      summary: Update the global public recipient language
+      description: Admin session only. Persists `en` or `fa`; browser requests must send `X-CSRF-Token`.
+      security:
+        - CookieSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePublicExperienceRequest'
+      responses:
+        '200':
+          description: Updated public experience settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicExperienceSettings'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/settings/email/test-connection:
     post:
       tags: [Email Settings]
@@ -1700,6 +1743,34 @@ components:
         updated_at:
           type: string
           format: date-time
+    PublicExperienceSettings:
+      type: object
+      required: [id, public_locale]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        public_locale:
+          type: string
+          enum: [en, fa]
+        updated_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpdatePublicExperienceRequest:
+      type: object
+      required: [public_locale]
+      additionalProperties: false
+      properties:
+        public_locale:
+          type: string
+          enum: [en, fa]
     UpdateEmailSettingsRequest:
       type: object
       required: [enabled, smtp_host, smtp_port, encryption_mode, from_email, connection_timeout_seconds, send_timeout_seconds, default_subject, default_message]

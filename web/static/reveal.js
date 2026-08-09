@@ -5,6 +5,26 @@
   let currentState = "loading";
   let retryAction = "prepare";
 
+  const copySource = document.querySelector("#recipient-copy");
+  const copy = {
+    locale: copySource?.dataset.locale || "en",
+    ready: copySource?.dataset.ready || "The link is ready. Opening this page has not consumed the secret.",
+    availableUntil: copySource?.dataset.availableUntil || "Available until",
+    availableUntilSuffix: copySource?.dataset.availableUntilSuffix ?? ".",
+    reveal: copySource?.dataset.reveal || "Reveal secret",
+    revealing: copySource?.dataset.revealing || "Revealing...",
+    wrongPassword: copySource?.dataset.wrongPassword || "The link password is incorrect. Try again.",
+    unavailableTitle: copySource?.dataset.unavailableTitle || "This link is no longer available",
+    unavailableMessage: copySource?.dataset.unavailableMessage || "This link has expired, was revoked, or has already been viewed.",
+    sessionLostTitle: copySource?.dataset.sessionLostTitle || "Reopen the original secure link",
+    sessionLostMessage: copySource?.dataset.sessionLostMessage || "For your security, this link is not stored in the browser. Reopen the original link you received.",
+    show: copySource?.dataset.show || "Show",
+    hide: copySource?.dataset.hide || "Hide",
+    copy: copySource?.dataset.copy || "Copy",
+    copySuccess: copySource?.dataset.copySuccess || "Copied",
+    invalidDate: copySource?.dataset.invalidDate || "Invalid date",
+  };
+
   const readyState = document.querySelector("#ready-state");
   const prepareState = document.querySelector("#prepare-state");
   const expiresState = document.querySelector("#expires-state");
@@ -47,23 +67,23 @@
 
   function setSubmitting(submitting) {
     if (!revealButton) return;
-    revealButton.textContent = submitting ? (revealButton.dataset.loadingText || "Revealing...") : "Reveal Secret";
+    revealButton.textContent = submitting ? (revealButton.dataset.loadingText || copy.revealing) : copy.reveal;
     revealButton.disabled = submitting;
   }
 
   function unavailable() {
     token = "";
     setSubmitting(false);
-    unavailableTitle.textContent = "Secret unavailable";
-    unavailableMessage.textContent = "This secret has expired, was revoked, or has already been viewed.";
+    unavailableTitle.textContent = copy.unavailableTitle;
+    unavailableMessage.textContent = copy.unavailableMessage;
     setState("unavailable");
   }
 
   function sessionLost() {
     token = "";
     setSubmitting(false);
-    unavailableTitle.textContent = "Reopen the original secure link";
-    unavailableMessage.textContent = "This secure link is no longer available in this browser session. Reopen the original link you received.";
+    unavailableTitle.textContent = copy.sessionLostTitle;
+    unavailableMessage.textContent = copy.sessionLostMessage;
     setState("unavailable");
   }
 
@@ -81,7 +101,8 @@
         if (!input) return;
         const reveal = input.type === "password";
         input.type = reveal ? "text" : "password";
-        button.textContent = reveal ? "Hide" : "Show";
+        button.textContent = reveal ? copy.hide : copy.show;
+        button.setAttribute("aria-label", button.textContent);
       });
     });
   }
@@ -117,15 +138,19 @@
       if (body.expires_at) {
         const timeElement = document.createElement("time");
         if (window.SecureShareTime?.render) {
-          window.SecureShareTime.render(timeElement, body.expires_at, { emptyLabel: "Invalid date" });
+          window.SecureShareTime.render(timeElement, body.expires_at, {
+            locale: copy.locale,
+            emptyLabel: copy.invalidDate,
+            invalidLabel: copy.invalidDate,
+          });
         } else {
           timeElement.textContent = body.expires_at;
           timeElement.setAttribute("datetime", body.expires_at);
           timeElement.setAttribute("title", body.expires_at);
         }
-        expiresState.replaceChildren("Available until ", timeElement, ".");
+        expiresState.replaceChildren(`${copy.availableUntil} `, timeElement, copy.availableUntilSuffix);
       }
-      prepareState.textContent = "Ready to reveal. Opening this page has not consumed the secret.";
+      prepareState.textContent = copy.ready;
       setSubmitting(false);
       setState("ready");
     } catch {
@@ -150,22 +175,22 @@
     const reveal = document.createElement("button");
     reveal.type = "button";
     reveal.className = "ghost compact";
-    reveal.textContent = "Show";
+    reveal.textContent = copy.show;
     reveal.hidden = !field.sensitive;
     reveal.addEventListener("click", () => {
       const showing = secret.textContent === secret.dataset.value;
       secret.textContent = showing ? "••••••••••••" : secret.dataset.value;
-      reveal.textContent = showing ? "Show" : "Hide";
+      reveal.textContent = showing ? copy.show : copy.hide;
     });
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "secondary compact";
-    copy.textContent = "Copy";
-    copy.addEventListener("click", async () => {
+    const copyAction = document.createElement("button");
+    copyAction.type = "button";
+    copyAction.className = "secondary compact";
+    copyAction.textContent = copy.copy;
+    copyAction.addEventListener("click", async () => {
       await navigator.clipboard.writeText(secret.dataset.value);
-      toast(`${field.label || field.name} copied.`);
+      toast(copy.copySuccess);
     });
-    actions.append(reveal, copy);
+    actions.append(reveal, copyAction);
     row.append(name, secret, actions);
     return row;
   }
@@ -217,7 +242,7 @@
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         if (response.status === 401 && body.code === "LINK_PASSWORD_INVALID") {
-          passwordError.textContent = body.message || "The link password is incorrect.";
+          passwordError.textContent = copy.wrongPassword;
           setState("password_error");
           shouldFocusPassword = true;
           return;
@@ -252,7 +277,7 @@
   copyButton?.addEventListener("click", async () => {
     if (!revealedText) return;
     await navigator.clipboard.writeText(revealedText);
-    toast("Secret copied.");
+    toast(copy.copySuccess);
   });
   setupSecretToggles();
   prepare();

@@ -26,7 +26,7 @@ func TestNavigationModelUsesRolePermissionsStableOrderAndExplicitActiveRoutes(t 
 		role string
 		want []string
 	}{
-		{role: auth.RoleAdmin, want: []string{"dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "system-status", "api-docs", "help", "account"}},
+		{role: auth.RoleAdmin, want: []string{"dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "public-experience", "system-status", "api-docs", "help", "account"}},
 		{role: auth.RoleDeveloper, want: []string{"dashboard", "create-secret", "secret-links", "api-docs", "help", "account"}},
 		{role: auth.RoleViewer, want: []string{"dashboard", "secret-links", "system-status", "api-docs", "help", "account"}},
 	}
@@ -50,10 +50,12 @@ func TestNavigationModelUsesRolePermissionsStableOrderAndExplicitActiveRoutes(t 
 		"/admin/api-clients/11111111-1111-4111-8111-111111111111": "api-clients",
 		"/admin/users/11111111-1111-4111-8111-111111111111":       "users",
 		"/admin/settings/email":                                   "email-settings",
-		"/admin/status":                                           "system-status",
-		"/admin/system":                                           "system-status",
-		"/docs":                                                   "api-docs",
-		"/admin/account":                                          "account",
+		"/admin/settings/public-experience":                       "public-experience",
+		"/admin/settings/public-experience/preview":               "public-experience",
+		"/admin/status":  "system-status",
+		"/admin/system":  "system-status",
+		"/docs":          "api-docs",
+		"/admin/account": "account",
 	}
 	for path, want := range activeRoutes {
 		if got := activeNavigationID(path); got != want {
@@ -90,13 +92,14 @@ func TestRoleNavigationIsIdenticalAcrossProtectedPagesAndErrors(t *testing.T) {
 	}{
 		{
 			role: auth.RoleAdmin, login: "admin", password: "change-me-now",
-			wantIDs: []string{"dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "system-status", "api-docs", "help", "account"},
+			wantIDs: []string{"dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "public-experience", "system-status", "api-docs", "help", "account"},
 			pages: map[string]string{
 				"/admin": "dashboard", "/admin/secrets/new": "create-secret", "/admin/secrets": "secret-links",
 				"/admin/secrets/" + testUUID.String(): "secret-links", "/admin/api-clients": "api-clients",
 				"/admin/api-clients/" + client.ID.String(): "api-clients", "/admin/users": "users",
 				"/admin/users/" + adminUser.ID.String(): "users", "/admin/settings/email": "email-settings",
-				"/admin/status": "system-status", "/admin/system": "system-status", "/docs": "api-docs",
+				"/admin/settings/public-experience": "public-experience",
+				"/admin/status":                     "system-status", "/admin/system": "system-status", "/docs": "api-docs",
 				"/admin/help": "help", "/admin/account": "account",
 			},
 		},
@@ -168,12 +171,12 @@ func TestNavigationFeatureAvailabilityAndValidationFailures(t *testing.T) {
 	})
 	cookie, csrf := loginSession(t, app, "admin", "change-me-now")
 	response := authenticatedPage(t, app, cookie, "/admin")
-	want := []string{"dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "system-status", "help", "account"}
+	want := []string{"dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "public-experience", "system-status", "help", "account"}
 	assertNavigationHTML(t, response.Body.String(), want, "dashboard")
 	if strings.Contains(response.Body.String(), `data-nav-item-id="api-docs"`) {
 		t.Fatal("API Documentation remained visible when Swagger UI was disabled")
 	}
-	for _, id := range []string{"create-secret", "email-settings"} {
+	for _, id := range []string{"create-secret", "email-settings", "public-experience"} {
 		if !strings.Contains(response.Body.String(), `data-nav-item-id="`+id+`"`) {
 			t.Fatalf("%s disappeared while SMTP is unconfigured", id)
 		}

@@ -1074,6 +1074,58 @@
     });
   }
 
+  function setupPublicExperienceSettings() {
+    const form = qs("[data-public-experience-settings]");
+    if (!form) return;
+    const locale = form.querySelector('[name="public_locale"]');
+    const status = qs("[data-public-experience-status]");
+    const error = qs("[data-form-error]", form);
+    const badge = qs("[data-public-locale-badge]");
+
+    function updatePreviewLinks() {
+      qsa("[data-public-preview]").forEach((link) => {
+        const url = new URL(link.getAttribute("href"), window.location.origin);
+        url.searchParams.set("locale", locale.value);
+        link.setAttribute("href", `${url.pathname}${url.search}`);
+      });
+    }
+
+    locale?.addEventListener("change", updatePreviewLinks);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.submitter || form.querySelector('button[type="submit"]');
+      if (error) error.textContent = "";
+      if (status) status.textContent = "Saving public recipient language...";
+      setButtonLoading(submit, true);
+      try {
+        const response = await fetch("/api/v1/settings/public-experience", {
+          method: "PUT",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ public_locale: locale.value }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (error) error.textContent = body.message || "Public recipient language could not be saved.";
+          if (status) status.textContent = "";
+          return;
+        }
+        locale.value = body.public_locale;
+        if (badge) badge.textContent = body.public_locale === "fa" ? "فارسی" : "English";
+        updatePreviewLinks();
+        if (status) status.textContent = "Public recipient language saved.";
+        toast("Public recipient language saved.");
+      } catch {
+        if (error) error.textContent = "Public recipient language could not be saved. Check your connection and try again.";
+        if (status) status.textContent = "";
+      } finally {
+        setButtonLoading(submit, false);
+      }
+    });
+
+    updatePreviewLinks();
+  }
+
   setupTheme();
   setupNavigation();
   setupSecretToggles();
@@ -1085,4 +1137,5 @@
   setupAPIClients();
   setupAccount();
   setupEmailSettings();
+  setupPublicExperienceSettings();
 })();

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" data-theme="{{ .ThemePreference }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Public Experience - SecureShare</title>
+  <meta name="csrf-token" content="{{ .CSRFToken }}">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/time.js" defer></script>
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    {{ template "app-sidebar" . }}
+    <div class="workspace">
+      {{ template "app-header" . }}
+      <main id="main-content" class="content-grid">
+        <section class="hero-panel operational-header">
+          <div>
+            <p class="eyebrow">Recipient-facing language</p>
+            <h2>Configure the global public secret experience.</h2>
+            <p>This setting localizes only public recipient pages. The authenticated administration console remains English.</p>
+          </div>
+          <span class="badge neutral" data-public-locale-badge>{{ if eq .Settings.PublicLocale "fa" }}فارسی{{ else }}English{{ end }}</span>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">Global setting</p><h2>Public recipient language</h2></div>
+          </div>
+          <form class="form-stack" data-public-experience-settings>
+            <label for="public-locale">Language
+              <select id="public-locale" name="public_locale">
+                <option value="en" {{ if eq .Settings.PublicLocale "en" }}selected{{ end }}>English</option>
+                <option value="fa" {{ if eq .Settings.PublicLocale "fa" }}selected{{ end }}>فارسی</option>
+              </select>
+            </label>
+            <div class="alert-panel">
+              <strong>Global recipient experience</strong>
+              <span>New and existing public links use the selected language on their next page load. The locale never changes reveal, password, token, or one-time consumption behavior.</span>
+            </div>
+            <p class="form-error" role="alert" data-form-error></p>
+            <p class="status-line" role="status" data-public-experience-status></p>
+            <div class="actions">
+              <button type="submit" data-loading-text="Saving...">Save</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">Safe demo values</p><h2>Preview recipient states</h2></div>
+            <span class="badge success">No secret created</span>
+          </div>
+          <p>Previews render fake credentials without generating a secret link or exposing a token.</p>
+          <div class="actions public-preview-actions">
+            <a class="button-link secondary-link" data-public-preview="ready" href="/admin/settings/public-experience/preview?state=ready&amp;locale={{ .Settings.PublicLocale }}" target="_blank" rel="noopener">Preview Ready Page</a>
+            <a class="button-link secondary-link" data-public-preview="revealed" href="/admin/settings/public-experience/preview?state=revealed&amp;locale={{ .Settings.PublicLocale }}" target="_blank" rel="noopener">Preview Revealed Page</a>
+            <a class="button-link secondary-link" data-public-preview="unavailable" href="/admin/settings/public-experience/preview?state=unavailable&amp;locale={{ .Settings.PublicLocale }}" target="_blank" rel="noopener">Preview Unavailable Page</a>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

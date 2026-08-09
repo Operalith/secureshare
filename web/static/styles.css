@@ -22,7 +22,7 @@
   --radius: 8px;
   --sidebar-width: 252px;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-persian: Tahoma, "Segoe UI", Arial, sans-serif;
+  --font-persian: "Vazirmatn", Tahoma, "Segoe UI", Arial, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --weight-regular: 400;
   --weight-medium: 620;
@@ -500,6 +500,7 @@ p {
 .nav-icon-key::before { content: "◇"; }
 .nav-icon-users::before { content: "◎"; }
 .nav-icon-mail::before { content: "✉"; }
+.nav-icon-globe::before { content: "◉"; }
 .nav-icon-status::before { content: "●"; }
 .nav-icon-book::before { content: "▤"; }
 .nav-icon-help::before { content: "?"; }
@@ -1207,14 +1208,44 @@ th {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: clamp(18px, 5vw, 56px);
+  background:
+    radial-gradient(circle at 15% 12%, color-mix(in srgb, var(--accent-soft) 74%, transparent), transparent 36%),
+    radial-gradient(circle at 88% 86%, color-mix(in srgb, var(--neutral-soft) 70%, transparent), transparent 34%);
 }
 
 .recipient-card {
-  width: min(680px, 100%);
+  width: min(660px, 100%);
   display: grid;
-  gap: 18px;
-  padding: clamp(24px, 5vw, 42px);
+  gap: clamp(18px, 3vw, 26px);
+  padding: clamp(24px, 5vw, 44px);
+  border-radius: 20px;
+  box-shadow: 0 28px 80px rgba(18, 24, 23, 0.12);
+}
+
+.recipient-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.recipient-brand .eyebrow {
+  margin-bottom: 6px;
+}
+
+.recipient-heading {
+  display: grid;
+  gap: 10px;
+}
+
+.recipient-heading > * {
+  margin: 0;
+}
+
+body[data-recipient-state="revealed"] .recipient-heading,
+body[data-recipient-state="unavailable"] .recipient-heading,
+body[data-recipient-state="network_error"] .recipient-heading {
+  display: none;
 }
 
 .recipient-state-panel {
@@ -1240,8 +1271,9 @@ th {
 }
 
 .recipient-card h1 {
-  font-size: clamp(1.9rem, 5vw, 3.4rem);
-  line-height: 1.04;
+  max-width: 20ch;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  line-height: 1.16;
 }
 
 .recipient-state {
@@ -1253,6 +1285,56 @@ th {
   background: var(--surface-strong);
   color: var(--muted);
   font-weight: 760;
+}
+
+.one-time-callout {
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.recipient-expiration {
+  margin: 0;
+}
+
+.recipient-expiration time,
+.recipient-expiration > span {
+  unicode-bidi: isolate;
+}
+
+.recipient-security-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.recipient-security-note > :first-child {
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: var(--weight-bold);
+}
+
+.warning-note > :first-child {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.recipient-card button,
+.recipient-card .button-link,
+.recipient-card input {
+  min-height: 44px;
 }
 
 .skeleton-line {
@@ -1271,10 +1353,15 @@ th {
 .success-banner {
   display: flex;
   gap: 14px;
-  padding: 14px;
+  padding: 18px;
   border: 1px solid color-mix(in srgb, var(--success) 30%, var(--line));
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--success-soft);
+}
+
+.success-banner h2,
+.success-banner p {
+  margin-bottom: 4px;
 }
 
 .revealed-fields {
@@ -1311,10 +1398,43 @@ pre {
 }
 
 .unavailable {
-  padding: 16px;
+  justify-items: center;
+  padding: clamp(20px, 4vw, 32px);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--surface-strong);
+  text-align: center;
+}
+
+.recipient-status-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--neutral-soft);
+  color: var(--muted);
+  font-size: 1.5rem;
+  font-weight: var(--weight-bold);
+}
+
+[dir="rtl"] .recipient-card h1 {
+  max-width: 24ch;
+}
+
+[dir="rtl"] .recipient-brand,
+[dir="rtl"] .success-banner,
+[dir="rtl"] .recipient-security-note {
+  text-align: right;
+}
+
+[dir="rtl"] .recipient-card .actions,
+[dir="rtl"] .recipient-card .row-actions {
+  justify-content: flex-start;
+}
+
+.public-preview-actions {
+  flex-wrap: wrap;
 }
 
 .confirm-dialog {

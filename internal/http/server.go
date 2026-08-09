@@ -28,36 +28,39 @@ import (
 	secureemail "secureshare/internal/email"
 	"secureshare/internal/middleware"
 	"secureshare/internal/observability"
+	"secureshare/internal/publicexperience"
 	"secureshare/internal/ratelimit"
 )
 
 type Dependencies struct {
-	Config   config.Config
-	Logger   *slog.Logger
-	Auth     *auth.SessionManager
-	Delivery *delivery.Service
-	Email    *secureemail.Service
-	DB       *pgxpool.Pool
-	Vault    delivery.Vault
-	Metrics  *observability.Metrics
-	Limits   *ratelimit.Registry
-	Users    auth.UserStore
-	Clients  auth.APIClientStore
+	Config           config.Config
+	Logger           *slog.Logger
+	Auth             *auth.SessionManager
+	Delivery         *delivery.Service
+	Email            *secureemail.Service
+	PublicExperience *publicexperience.Service
+	DB               *pgxpool.Pool
+	Vault            delivery.Vault
+	Metrics          *observability.Metrics
+	Limits           *ratelimit.Registry
+	Users            auth.UserStore
+	Clients          auth.APIClientStore
 }
 
 type Server struct {
-	cfg       config.Config
-	logger    *slog.Logger
-	auth      *auth.SessionManager
-	delivery  *delivery.Service
-	email     *secureemail.Service
-	db        *pgxpool.Pool
-	vault     delivery.Vault
-	metrics   *observability.Metrics
-	limits    *ratelimit.Registry
-	users     auth.UserStore
-	clients   auth.APIClientStore
-	templates *template.Template
+	cfg              config.Config
+	logger           *slog.Logger
+	auth             *auth.SessionManager
+	delivery         *delivery.Service
+	email            *secureemail.Service
+	publicExperience *publicexperience.Service
+	db               *pgxpool.Pool
+	vault            delivery.Vault
+	metrics          *observability.Metrics
+	limits           *ratelimit.Registry
+	users            auth.UserStore
+	clients          auth.APIClientStore
+	templates        *template.Template
 }
 
 func New(deps Dependencies) *Server {
@@ -81,18 +84,19 @@ func New(deps Dependencies) *Server {
 	}
 	templates := template.Must(template.New("").Funcs(funcs).ParseGlob(templatePattern()))
 	return &Server{
-		cfg:       deps.Config,
-		logger:    deps.Logger,
-		auth:      deps.Auth,
-		delivery:  deps.Delivery,
-		email:     deps.Email,
-		db:        deps.DB,
-		vault:     deps.Vault,
-		metrics:   deps.Metrics,
-		limits:    deps.Limits,
-		users:     deps.Users,
-		clients:   deps.Clients,
-		templates: templates,
+		cfg:              deps.Config,
+		logger:           deps.Logger,
+		auth:             deps.Auth,
+		delivery:         deps.Delivery,
+		email:            deps.Email,
+		publicExperience: deps.PublicExperience,
+		db:               deps.DB,
+		vault:            deps.Vault,
+		metrics:          deps.Metrics,
+		limits:           deps.Limits,
+		users:            deps.Users,
+		clients:          deps.Clients,
+		templates:        templates,
 	}
 }
 
@@ -164,6 +168,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/users/", s.handleUserDetailPage)
 	mux.HandleFunc("/admin/account", s.handleAccountPage)
 	mux.HandleFunc("/admin/settings/email", s.handleEmailSettingsPage)
+	mux.HandleFunc("/admin/settings/public-experience", s.handlePublicExperiencePage)
+	mux.HandleFunc("/admin/settings/public-experience/preview", s.handlePublicExperiencePreview)
 	mux.HandleFunc("/admin/api-clients", s.handleAPIClientsPage)
 	mux.HandleFunc("/admin/api-clients/new", s.handleNewAPIClientPage)
 	mux.HandleFunc("/admin/api-clients/", s.handleAPIClientDetailPage)
@@ -180,6 +186,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/cleanup", s.handleManualCleanup)
 	mux.HandleFunc("/api/v1/settings/email", s.handleEmailSettingsAPI)
 	mux.HandleFunc("/api/v1/settings/email/", s.handleEmailSettingsActionAPI)
+	mux.HandleFunc("/api/v1/settings/public-experience", s.handlePublicExperienceAPI)
 	mux.HandleFunc("/api/v1/users", s.handleUsersAPI)
 	mux.HandleFunc("/api/v1/users/", s.handleUserAPI)
 	mux.HandleFunc("/api/v1/api-clients", s.handleAPIClientsAPI)
@@ -466,6 +473,59 @@ func (s *Server) handleEmailSettingsPage(w http.ResponseWriter, r *http.Request)
 	s.render(w, "email_settings.html", s.adminData(r, map[string]any{"Title": "Email Settings", "Settings": settings}))
 }
 
+func (s *Server) handlePublicExperiencePage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/settings/public-experience" {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := s.requirePageSession(w, r, "public-experience:manage"); !ok {
+		return
+	}
+	settings, err := s.publicExperience.Current(r.Context())
+	if err != nil {
+		s.logger.Warn("public experience settings page query failed", "error", err)
+		s.renderPageError(w, r, http.StatusInternalServerError, "Unavailable", "Public experience settings are unavailable.")
+		return
+	}
+	s.render(w, "public_experience.html", s.adminData(r, map[string]any{
+		"Title":    "Public Experience",
+		"Settings": settings,
+	}))
+}
+
+func (s *Server) handlePublicExperiencePreview(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/admin/settings/public-experience/preview" || r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := s.requirePageSession(w, r, "public-experience:manage"); !ok {
+		return
+	}
+	state := r.URL.Query().Get("state")
+	if state != "ready" && state != "revealed" && state != "unavailable" {
+		state = "ready"
+	}
+	locale := r.URL.Query().Get("locale")
+	if !publicexperience.ValidLocale(locale) {
+		settings, err := s.publicExperience.Current(r.Context())
+		if err != nil {
+			s.renderPageError(w, r, http.StatusInternalServerError, "Unavailable", "Public experience preview is unavailable.")
+			return
+		}
+		locale = settings.PublicLocale
+	}
+	data := publicexperience.Catalog(locale)
+	s.render(w, "recipient.html", map[string]any{
+		"Title":        data.Text.PageTitle,
+		"Locale":       data.Locale,
+		"Direction":    data.Direction,
+		"DateLocale":   data.DateLocale,
+		"Text":         data.Text,
+		"Preview":      true,
+		"PreviewState": state,
+	})
+}
+
 func (s *Server) handleAPIClientsPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/admin/api-clients" {
 		http.NotFound(w, r)
@@ -510,7 +570,19 @@ func (s *Server) handleRecipientPage(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 		return
 	}
-	s.render(w, "recipient.html", map[string]any{"Title": "Secure Secret"})
+	settings, err := s.publicExperience.Current(r.Context())
+	if err != nil {
+		s.logger.Warn("public experience settings query failed", "error", err)
+		settings = publicexperience.DefaultSettings()
+	}
+	data := publicexperience.Catalog(settings.PublicLocale)
+	s.render(w, "recipient.html", map[string]any{
+		"Title":      data.Text.PageTitle,
+		"Locale":     data.Locale,
+		"Direction":  data.Direction,
+		"DateLocale": data.DateLocale,
+		"Text":       data.Text,
+	})
 }
 
 func (s *Server) handleErrorPage(w http.ResponseWriter, r *http.Request) {
@@ -1560,6 +1632,62 @@ func (s *Server) handleEmailSettingsAPI(w http.ResponseWriter, r *http.Request) 
 			s.recordEmailAudit(r, actor, "email.password_cleared", "success")
 		}
 		s.writeJSON(w, http.StatusOK, result.Settings)
+	default:
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handlePublicExperienceAPI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api/v1/settings/public-experience" {
+		http.NotFound(w, r)
+		return
+	}
+	session, ok := s.auth.FromRequest(r)
+	if !ok {
+		s.writeError(w, delivery.CodeUnauthorized, "Unauthorized.", http.StatusUnauthorized)
+		return
+	}
+	if !session.Permissions["public-experience:manage"] {
+		s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		settings, err := s.publicExperience.Current(r.Context())
+		if err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, settings)
+	case http.MethodPut:
+		if !s.validCSRF(r, session) {
+			s.recordCSRFFailure()
+			s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+			return
+		}
+		var request struct {
+			PublicLocale string `json:"public_locale"`
+		}
+		if !s.decodeJSON(w, r, 1024, &request) {
+			return
+		}
+		settings, err := s.publicExperience.Update(r.Context(), session.UserID, request.PublicLocale)
+		if errors.Is(err, publicexperience.ErrInvalidLocale) {
+			s.writeError(w, delivery.CodeInvalidRequest, "Public locale must be en or fa.", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			s.writeError(w, delivery.CodeInternal, "Internal error.", http.StatusInternalServerError)
+			return
+		}
+		s.delivery.RecordAudit(r.Context(), delivery.AuditEventRecord{
+			ActorID:   session.ActorID,
+			Type:      "application.public_locale_updated",
+			Result:    settings.PublicLocale,
+			IPHash:    middleware.IPHash(s.cfg.RequestIPHashPepper, r),
+			RequestID: middleware.RequestID(r.Context()),
+		})
+		s.writeJSON(w, http.StatusOK, settings)
 	default:
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 	}

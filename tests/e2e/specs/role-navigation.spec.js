@@ -20,6 +20,7 @@ test("admin navigation stays ordered and active across every protected area", as
     ["/admin/users", "users"],
     [`/admin/users/${fixture.developerID}`, "users"],
     ["/admin/settings/email", "email-settings"],
+    ["/admin/settings/public-experience", "public-experience"],
     ["/admin/system", "system-status"],
     ["/docs", "api-docs"],
     ["/admin/help", "help"],
@@ -45,7 +46,7 @@ test("developer navigation excludes admin-only areas and remains stable after 40
     await gotoPage(page, route);
     await assertNavigation(page, "developer", active);
   }
-  for (const route of ["/admin/users", "/admin/api-clients", "/admin/settings/email", "/admin/system"]) {
+  for (const route of ["/admin/users", "/admin/api-clients", "/admin/settings/email", "/admin/settings/public-experience", "/admin/system"]) {
     await gotoPage(page, route, 403);
     await assertNavigation(page, "developer", "");
   }

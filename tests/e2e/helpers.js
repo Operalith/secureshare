@@ -4,7 +4,7 @@ const { expect } = require("@playwright/test");
 
 const authDir = process.env.PLAYWRIGHT_AUTH_DIR || path.join(__dirname, ".auth");
 const navigationByRole = {
-  admin: ["dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "system-status", "api-docs", "help", "account"],
+  admin: ["dashboard", "create-secret", "secret-links", "api-clients", "users", "email-settings", "public-experience", "system-status", "api-docs", "help", "account"],
   developer: ["dashboard", "create-secret", "secret-links", "api-docs", "help", "account"],
   viewer: ["dashboard", "secret-links", "system-status", "api-docs", "help", "account"],
 };

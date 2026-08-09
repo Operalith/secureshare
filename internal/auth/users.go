@@ -119,6 +119,7 @@ func PermissionsForRole(role string) []string {
 			"user:manage",
 			"api-client:manage",
 			"email-settings:manage",
+			"public-experience:manage",
 			"email:send",
 			"system:cleanup",
 			"api-docs:read",

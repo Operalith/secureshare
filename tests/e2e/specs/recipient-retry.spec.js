@@ -29,7 +29,7 @@ test("wrong link password can be retried without reloading", async ({ page, requ
   await page.locator("#reveal-button").click();
 
   await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "password_error");
-  await expect(page.locator("#password-error")).toHaveText("The link password is incorrect.");
+  await expect(page.locator("#password-error")).toHaveText("The link password is incorrect. Try again.");
   await expect(page.locator("#reveal-button")).toBeEnabled();
   await expect(page.locator("#link-password")).toBeFocused();
   await expect(page.locator('[data-recipient-state-panel]:visible')).toHaveCount(1);
@@ -45,7 +45,7 @@ test("wrong link password can be retried without reloading", async ({ page, requ
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("body")).toHaveAttribute("data-recipient-state", "unavailable");
-  await expect(page.locator("#unavailable-message")).toContainText("no longer available in this browser session");
+  await expect(page.locator("#unavailable-message")).toContainText("this link is not stored in the browser");
   await expect(page.locator("#reveal-button")).toBeHidden();
   monitor.assertClean();
 });

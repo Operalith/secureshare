@@ -19,6 +19,7 @@ import (
 	"secureshare/internal/email"
 	server "secureshare/internal/http"
 	"secureshare/internal/observability"
+	"secureshare/internal/publicexperience"
 	"secureshare/internal/ratelimit"
 )
 
@@ -55,6 +56,7 @@ func main() {
 
 	repo := delivery.NewRepository(db)
 	emailRepo := email.NewRepository(db)
+	publicExperienceRepo := publicexperience.NewRepository(db)
 	users := auth.NewRepository(db)
 	if err := auth.BootstrapAdmin(ctx, users, cfg); err != nil {
 		logger.Error("bootstrap admin failed", "error", err)
@@ -63,20 +65,22 @@ func main() {
 	metrics := observability.New()
 	secrets := delivery.NewService(cfg, repo, vaultClient, metrics, logger)
 	emailSettings := email.NewService(cfg, emailRepo, vaultClient, metrics, logger)
+	publicExperience := publicexperience.NewService(publicExperienceRepo)
 	sessions := auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, cfg.CookieSecure).WithStore(users)
 	limiters := ratelimit.NewRegistry()
 	app := server.New(server.Dependencies{
-		Config:   cfg,
-		Logger:   logger,
-		Auth:     sessions,
-		Delivery: secrets,
-		Email:    emailSettings,
-		DB:       db,
-		Vault:    vaultClient,
-		Metrics:  metrics,
-		Limits:   limiters,
-		Users:    users,
-		Clients:  users,
+		Config:           cfg,
+		Logger:           logger,
+		Auth:             sessions,
+		Delivery:         secrets,
+		Email:            emailSettings,
+		PublicExperience: publicExperience,
+		DB:               db,
+		Vault:            vaultClient,
+		Metrics:          metrics,
+		Limits:           limiters,
+		Users:            users,
+		Clients:          users,
 	})
 
 	cleaner := cleanup.NewWorker(cfg, repo, metrics, logger)

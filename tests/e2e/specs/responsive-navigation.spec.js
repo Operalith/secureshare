@@ -49,7 +49,7 @@ test("mobile drawer preserves navigation, traps focus, and closes safely", async
   test.skip(!testInfo.project.name.startsWith("mobile-") && !testInfo.project.name.startsWith("tablet-"), "Mobile and tablet interaction check.");
   const fixture = fixtures();
   const monitor = await monitorPage(page, baseURL);
-  for (const [route, active] of [["/admin", "dashboard"], ["/admin/secrets/new", "create-secret"], ["/admin/secrets", "secret-links"], [`/admin/secrets/${fixture.secretID}`, "secret-links"], ["/admin/api-clients", "api-clients"], ["/admin/users", "users"], ["/admin/settings/email", "email-settings"], ["/admin/system", "system-status"], ["/docs", "api-docs"], ["/admin/account", "account"]]) {
+  for (const [route, active] of [["/admin", "dashboard"], ["/admin/secrets/new", "create-secret"], ["/admin/secrets", "secret-links"], [`/admin/secrets/${fixture.secretID}`, "secret-links"], ["/admin/api-clients", "api-clients"], ["/admin/users", "users"], ["/admin/settings/email", "email-settings"], ["/admin/settings/public-experience", "public-experience"], ["/admin/system", "system-status"], ["/docs", "api-docs"], ["/admin/account", "account"]]) {
     await gotoPage(page, route);
     await assertNavigation(page, "admin", active);
     await page.locator("[data-menu-toggle]").click();

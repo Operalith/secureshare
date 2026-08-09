@@ -1,65 +1,109 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ .Locale }}" dir="{{ .Direction }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Secure Secret - SecureShare</title>
+  <title>{{ .Text.PageTitle }} - SecureShare</title>
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/time.js" defer></script>
-  <script src="/static/reveal.js" defer></script>
+  {{ if not .Preview }}<script src="/static/reveal.js" defer></script>{{ end }}
 </head>
-<body class="recipient-body" data-recipient-state="loading">
+<body class="recipient-body" data-recipient-state="{{ if .Preview }}{{ .PreviewState }}{{ else }}loading{{ end }}">
   <main class="recipient-page">
     <article class="recipient-card" aria-labelledby="recipient-title">
-      <div class="logo-mark large" aria-hidden="true">
-        <svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg>
-      </div>
-      <p class="eyebrow">SecureShare · One-time delivery</p>
-      <h1 id="recipient-title">A secure secret has been shared with you.</h1>
-      <p id="recipient-intro" class="muted">This secret can only be viewed once. Choose a private setting before revealing it.</p>
+      <header class="recipient-brand">
+        <div class="logo-mark large" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 10.3-6.6 17.9-16 22-9.4-4.1-16-11.7-16-22V10L24 4Z"></path><path d="M17 24l5 5 10-12"></path></svg>
+        </div>
+        <div>
+          <p class="eyebrow">{{ .Text.TrustLabel }}</p>
+          {{ if .Preview }}<span class="badge success">{{ .Text.PreviewLabel }}</span>{{ end }}
+        </div>
+      </header>
 
-      <section id="loading-state" class="recipient-state-panel recipient-state skeleton-line" data-recipient-state-panel="loading" role="status">
-        Preparing secure link...
+      <div class="recipient-heading">
+        <h1 id="recipient-title">{{ .Text.ReadyTitle }}</h1>
+        <p id="recipient-intro" class="muted">{{ .Text.Intro }}</p>
+      </div>
+
+      <section id="loading-state" class="recipient-state-panel recipient-state skeleton-line{{ if .Preview }} hidden{{ end }}" data-recipient-state-panel="loading" role="status">
+        {{ .Text.Loading }}
       </section>
 
-      <section id="ready-state" class="recipient-state-panel hidden" data-recipient-state-panel="ready">
-        <div id="prepare-state" class="recipient-state" role="status">Ready to reveal. Opening this page has not consumed the secret.</div>
-        <p id="expires-state" class="muted"></p>
-        <label id="password-wrap" class="hidden" for="link-password">
-          Link password
+      <section id="ready-state" class="recipient-state-panel{{ if not (and .Preview (eq .PreviewState "ready")) }} hidden{{ end }}" data-recipient-state-panel="ready">
+        <div id="prepare-state" class="recipient-state one-time-callout" role="status">{{ .Text.ReadyMessage }}</div>
+        <p id="expires-state" class="recipient-expiration muted">{{ if .Preview }}{{ .Text.AvailableUntil }} <span>{{ .Text.PreviewExpiration }}</span>{{ .Text.AvailableUntilSuffix }}{{ end }}</p>
+        <label id="password-wrap" class="{{ if not .Preview }}hidden{{ end }}" for="link-password">
+          {{ .Text.PasswordLabel }}
           <span class="input-with-action">
-            <input type="password" id="link-password" autocomplete="current-password" data-secret-input aria-describedby="password-error">
-            <button type="button" class="ghost compact" data-toggle-secret aria-label="Show link password">Show</button>
+            <input type="password" id="link-password" autocomplete="current-password" data-secret-input aria-describedby="password-error"{{ if .Preview }} value="safe-demo-password" disabled{{ end }}>
+            <button type="button" class="ghost compact" data-toggle-secret aria-label="{{ .Text.Show }} {{ .Text.PasswordLabel }}"{{ if .Preview }} disabled{{ end }}>{{ .Text.Show }}</button>
           </span>
           <span id="password-error" class="field-error hidden" role="alert" aria-live="assertive"></span>
         </label>
-        <button type="button" id="reveal-button" data-loading-text="Revealing...">Reveal Secret</button>
+        <button type="button" id="reveal-button" data-loading-text="{{ .Text.Revealing }}"{{ if .Preview }} disabled{{ end }}>{{ .Text.Reveal }}</button>
+        <p class="recipient-security-note"><span aria-hidden="true">⌁</span><span>{{ .Text.SecurityNote }}</span></p>
       </section>
 
-      <section id="revealed-secret-wrap" class="recipient-state-panel revealed hidden" data-recipient-state-panel="revealed" aria-live="polite">
+      <section id="revealed-secret-wrap" class="recipient-state-panel revealed{{ if not (and .Preview (eq .PreviewState "revealed")) }} hidden{{ end }}" data-recipient-state-panel="revealed" aria-live="polite">
         <div class="success-banner">
           <span class="success-icon" aria-hidden="true">✓</span>
-          <div><h2>Secret revealed</h2><p>This page cannot retrieve the secret again after refresh or navigation.</p></div>
+          <div><h2>{{ .Text.RevealedTitle }}</h2><p>{{ .Text.RevealedDescription }}</p></div>
         </div>
+        <p class="recipient-security-note warning-note"><span aria-hidden="true">!</span><span>{{ .Text.OneTimeWarning }}</span></p>
+        {{ if .Preview }}
+        <div class="revealed-fields" data-preview-fields>
+          <div class="revealed-field">
+            <strong>{{ .Text.PreviewUsername }}</strong>
+            <span class="secret-value technical-value">demo.user</span>
+            <button type="button" class="secondary compact" disabled>{{ .Text.Copy }}</button>
+          </div>
+          <div class="revealed-field">
+            <strong>{{ .Text.PreviewAPIKey }}</strong>
+            <span class="secret-value technical-value">••••••••••••</span>
+            <div class="row-actions"><button type="button" class="ghost compact" disabled>{{ .Text.Show }}</button><button type="button" class="secondary compact" disabled>{{ .Text.Copy }}</button></div>
+          </div>
+        </div>
+        {{ else }}
         <div id="structured-secret" class="revealed-fields hidden"></div>
         <pre id="plain-secret-wrap" class="hidden"><code id="revealed-secret"></code></pre>
+        {{ end }}
         <div class="actions">
-          <button type="button" id="copy-secret">Copy all</button>
+          <button type="button" id="copy-secret"{{ if .Preview }} disabled{{ end }}>{{ .Text.CopyAll }}</button>
         </div>
       </section>
 
-      <section id="unavailable-wrap" class="recipient-state-panel unavailable hidden" data-recipient-state-panel="unavailable" aria-live="polite">
-        <h2 id="unavailable-title">Secret unavailable</h2>
-        <p id="unavailable-message">This secret has expired, was revoked, or has already been viewed.</p>
+      <section id="unavailable-wrap" class="recipient-state-panel unavailable{{ if not (and .Preview (eq .PreviewState "unavailable")) }} hidden{{ end }}" data-recipient-state-panel="unavailable" aria-live="polite">
+        <div class="recipient-status-icon" aria-hidden="true">×</div>
+        <h2 id="unavailable-title">{{ .Text.UnavailableTitle }}</h2>
+        <p id="unavailable-message">{{ .Text.UnavailableMessage }}</p>
       </section>
 
       <section id="network-error-wrap" class="recipient-state-panel unavailable hidden" data-recipient-state-panel="network_error" aria-live="polite">
-        <h2>SecureShare could not be reached</h2>
-        <p>The secure link remains available in this page. Check your connection and try again.</p>
-        <button type="button" id="network-retry" class="secondary">Try again</button>
+        <div class="recipient-status-icon" aria-hidden="true">↻</div>
+        <h2>{{ .Text.NetworkTitle }}</h2>
+        <p>{{ .Text.NetworkMessage }}</p>
+        <button type="button" id="network-retry" class="secondary">{{ .Text.Retry }}</button>
       </section>
     </article>
   </main>
+  <div id="recipient-copy" hidden
+    data-locale="{{ .DateLocale }}"
+    data-ready="{{ .Text.ReadyMessage }}"
+    data-available-until="{{ .Text.AvailableUntil }}"
+    data-available-until-suffix="{{ .Text.AvailableUntilSuffix }}"
+    data-reveal="{{ .Text.Reveal }}"
+    data-revealing="{{ .Text.Revealing }}"
+    data-wrong-password="{{ .Text.WrongPassword }}"
+    data-unavailable-title="{{ .Text.UnavailableTitle }}"
+    data-unavailable-message="{{ .Text.UnavailableMessage }}"
+    data-session-lost-title="{{ .Text.SessionLostTitle }}"
+    data-session-lost-message="{{ .Text.SessionLostMessage }}"
+    data-show="{{ .Text.Show }}"
+    data-hide="{{ .Text.Hide }}"
+    data-copy="{{ .Text.Copy }}"
+    data-copy-success="{{ .Text.CopySuccess }}"
+    data-invalid-date="{{ .Text.InvalidDate }}"></div>
   <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

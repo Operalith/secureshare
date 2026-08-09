@@ -21,6 +21,7 @@ import (
 	"secureshare/internal/delivery"
 	secureemail "secureshare/internal/email"
 	"secureshare/internal/observability"
+	"secureshare/internal/publicexperience"
 	"secureshare/internal/ratelimit"
 )
 
@@ -46,7 +47,7 @@ func TestAdminPagesRendering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create api client fixture: %v", err)
 	}
-	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/settings/email", "/admin/account", "/admin/status", "/admin/help", "/docs"} {
+	for _, path := range []string{"/admin", "/admin/secrets/new", "/admin/secrets", "/admin/secrets/" + testUUID.String(), "/admin/users", "/admin/users/new", "/admin/api-clients", "/admin/api-clients/new", "/admin/api-clients/" + client.ID.String(), "/admin/settings/email", "/admin/settings/public-experience", "/admin/account", "/admin/status", "/admin/help", "/docs"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.AddCookie(cookie)
@@ -354,10 +355,142 @@ func TestRecipientRevealPageRendering(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/s", nil))
 	body := rec.Body.String()
-	for _, want := range []string{"Reveal Secret", "unavailable-wrap", "/static/reveal.js", "This secret can only be viewed once"} {
+	for _, want := range []string{"Reveal secret", "unavailable-wrap", "/static/reveal.js", "This secret can only be viewed once", `<html lang="en" dir="ltr">`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("recipient page missing %q", want)
 		}
+	}
+}
+
+func TestPublicExperienceLocaleAccessRenderingAndSafePreviews(t *testing.T) {
+	app, store := testServerWithDeliveryStore(nil)
+	adminCookie, adminCSRF := loginSession(t, app, "admin", "change-me-now")
+
+	english := httptest.NewRecorder()
+	app.Handler().ServeHTTP(english, httptest.NewRequest(http.MethodGet, "/s", nil))
+	for _, want := range []string{`<html lang="en" dir="ltr">`, "A secure secret has been shared with you", "The link password is incorrect. Try again.", "Secret revealed", "This link is no longer available"} {
+		if !strings.Contains(english.Body.String(), want) {
+			t.Fatalf("English recipient page missing %q", want)
+		}
+	}
+
+	settingsPage := httptest.NewRequest(http.MethodGet, "/admin/settings/public-experience", nil)
+	settingsPage.AddCookie(adminCookie)
+	settingsPageRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(settingsPageRec, settingsPage)
+	if settingsPageRec.Code != http.StatusOK {
+		t.Fatalf("public experience page = %d: %s", settingsPageRec.Code, settingsPageRec.Body.String())
+	}
+	for _, want := range []string{"Public recipient language", "Preview Ready Page", "Preview Revealed Page", "Preview Unavailable Page", "No secret created"} {
+		if !strings.Contains(settingsPageRec.Body.String(), want) {
+			t.Fatalf("settings page missing %q", want)
+		}
+	}
+
+	setLocale := func(locale string, wantStatus int) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/public-experience", strings.NewReader(`{"public_locale":"`+locale+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", adminCSRF)
+		req.AddCookie(adminCookie)
+		rec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(rec, req)
+		if rec.Code != wantStatus {
+			t.Fatalf("set locale %q = %d, want %d: %s", locale, rec.Code, wantStatus, rec.Body.String())
+		}
+		return rec
+	}
+	if body := setLocale("fa", http.StatusOK).Body.String(); !strings.Contains(body, `"public_locale":"fa"`) {
+		t.Fatalf("Persian settings response = %s", body)
+	}
+	if len(store.auditEvents) == 0 || store.auditEvents[len(store.auditEvents)-1].Type != "application.public_locale_updated" {
+		t.Fatalf("public locale audit missing: %+v", store.auditEvents)
+	}
+
+	persian := httptest.NewRecorder()
+	app.Handler().ServeHTTP(persian, httptest.NewRequest(http.MethodGet, "/s", nil))
+	for _, want := range []string{
+		`<html lang="fa" dir="rtl">`, "یک اطلاعات محرمانه برای شما ارسال شده است",
+		"رمز لینک صحیح نیست. دوباره تلاش کنید.", "اطلاعات محرمانه نمایش داده شد",
+		"این لینک دیگر در دسترس نیست", `data-locale="fa-IR-u-ca-gregory"`,
+	} {
+		if !strings.Contains(persian.Body.String(), want) {
+			t.Fatalf("Persian recipient page missing %q", want)
+		}
+	}
+	for header, want := range map[string]string{
+		"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff",
+	} {
+		if !strings.Contains(persian.Header().Get(header), want) {
+			t.Errorf("Persian recipient %s = %q, want %q", header, persian.Header().Get(header), want)
+		}
+	}
+
+	beforePreview := store.inserts
+	for _, locale := range []struct {
+		code   string
+		html   string
+		marker string
+	}{
+		{code: "en", html: `<html lang="en" dir="ltr">`, marker: "Safe preview"},
+		{code: "fa", html: `<html lang="fa" dir="rtl">`, marker: "پیش‌نمایش امن"},
+	} {
+		for _, state := range []string{"ready", "revealed", "unavailable"} {
+			req := httptest.NewRequest(http.MethodGet, "/admin/settings/public-experience/preview?state="+state+"&locale="+locale.code, nil)
+			req.AddCookie(adminCookie)
+			rec := httptest.NewRecorder()
+			app.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-recipient-state="`+state+`"`) {
+				t.Fatalf("%s %s preview = %d: %s", locale.code, state, rec.Code, rec.Body.String())
+			}
+			for _, want := range []string{locale.html, locale.marker, "demo.user", `class="secret-value technical-value"`} {
+				if !strings.Contains(rec.Body.String(), want) {
+					t.Fatalf("%s %s preview missing %q", locale.code, state, want)
+				}
+			}
+			if strings.Contains(rec.Body.String(), "/static/reveal.js") {
+				t.Fatalf("%s %s preview loaded the live reveal controller", locale.code, state)
+			}
+		}
+	}
+	if store.inserts != beforePreview {
+		t.Fatalf("preview created secret records: before=%d after=%d", beforePreview, store.inserts)
+	}
+
+	for _, fixture := range []struct {
+		username string
+		role     string
+	}{
+		{username: "locale-developer", role: auth.RoleDeveloper},
+		{username: "locale-viewer", role: auth.RoleViewer},
+	} {
+		if _, err := app.users.CreateUser(context.Background(), auth.UserCreate{
+			Username: fixture.username, Email: fixture.username + "@example.local", Password: fixture.username + " passphrase", Role: fixture.role, Status: auth.StatusActive,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		cookie, csrf := loginSession(t, app, fixture.username, fixture.username+" passphrase")
+		blocked := httptest.NewRequest(http.MethodPut, "/api/v1/settings/public-experience", strings.NewReader(`{"public_locale":"en"}`))
+		blocked.Header.Set("Content-Type", "application/json")
+		blocked.Header.Set("X-CSRF-Token", csrf)
+		blocked.AddCookie(cookie)
+		blockedRec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(blockedRec, blocked)
+		if blockedRec.Code != http.StatusForbidden {
+			t.Fatalf("%s public locale update = %d, want 403", fixture.role, blockedRec.Code)
+		}
+		blockedPage := httptest.NewRequest(http.MethodGet, "/admin/settings/public-experience", nil)
+		blockedPage.AddCookie(cookie)
+		blockedPageRec := httptest.NewRecorder()
+		app.Handler().ServeHTTP(blockedPageRec, blockedPage)
+		if blockedPageRec.Code != http.StatusForbidden {
+			t.Fatalf("%s settings page = %d, want 403", fixture.role, blockedPageRec.Code)
+		}
+	}
+
+	setLocale("de", http.StatusBadRequest)
+	if body := setLocale("en", http.StatusOK).Body.String(); !strings.Contains(body, `"public_locale":"en"`) {
+		t.Fatalf("English settings response = %s", body)
 	}
 }
 
@@ -376,6 +509,7 @@ func TestNoExternalAssetsOrBrowserStorageUsage(t *testing.T) {
 		"../../web/templates/api_client_new.html",
 		"../../web/templates/api_client_detail.html",
 		"../../web/templates/email_settings.html",
+		"../../web/templates/public_experience.html",
 		"../../web/templates/account.html",
 		"../../web/templates/status.html",
 		"../../web/templates/help.html",
@@ -1061,15 +1195,16 @@ func testServerWithDeliveryStore(configure func(*config.Config)) (*Server, *uiSt
 	}
 	deliveryStore := &uiStore{}
 	return New(Dependencies{
-		Config:   cfg,
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Auth:     auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false).WithStore(users),
-		Delivery: delivery.NewService(cfg, deliveryStore, &uiVault{}, observability.New(), slog.Default()),
-		Email:    secureemail.NewService(cfg, secureemail.NewMemoryStore(), &uiVault{}, observability.New(), slog.Default()),
-		Metrics:  observability.New(),
-		Limits:   ratelimit.NewRegistry(),
-		Users:    users,
-		Clients:  users,
+		Config:           cfg,
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Auth:             auth.NewSessionManager(cfg.SessionSecret, cfg.CSRFSecret, cfg.SessionTTL, cfg.SessionIdleTimeout, false).WithStore(users),
+		Delivery:         delivery.NewService(cfg, deliveryStore, &uiVault{}, observability.New(), slog.Default()),
+		Email:            secureemail.NewService(cfg, secureemail.NewMemoryStore(), &uiVault{}, observability.New(), slog.Default()),
+		PublicExperience: publicexperience.NewService(publicexperience.NewMemoryStore()),
+		Metrics:          observability.New(),
+		Limits:           ratelimit.NewRegistry(),
+		Users:            users,
+		Clients:          users,
 	}), deliveryStore
 }
 

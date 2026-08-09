@@ -35,6 +35,7 @@ required_paths = %w[
   /api/v1/secret-links/send-email
   /api/v1/dashboard
   /api/v1/settings/email
+  /api/v1/settings/public-experience
   /api/v1/settings/email/test-connection
   /api/v1/settings/email/send-test
   /api/v1/settings/email/template-preview
@@ -72,6 +73,8 @@ required_schemas = %w[
   EmailDeliveryResult
   EmailSettings
   UpdateEmailSettingsRequest
+  PublicExperienceSettings
+  UpdatePublicExperienceRequest
   SMTPConnectionTestResult
   SendTestEmailRequest
   EmailErrorResponse
