@@ -136,6 +136,96 @@ func TestCredentialPayloadFieldsDoNotMutateAPIClients(t *testing.T) {
 	}
 }
 
+func TestPasswordProtectionManagementAuthorizationAndSafeResponses(t *testing.T) {
+	app, store := testServerWithDeliveryStore(nil)
+	store.metadata = &delivery.Metadata{
+		ID:                testUUID,
+		Title:             "Managed link",
+		Status:            delivery.StatusActive,
+		ExpiresAt:         time.Now().Add(time.Hour),
+		CreatedBy:         "developer1",
+		PasswordProtected: false,
+	}
+
+	adminCookie, adminCSRF := loginSession(t, app, "admin", "change-me-now")
+	pageReq := httptest.NewRequest(http.MethodGet, "/admin/secrets/"+testUUID.String(), nil)
+	pageReq.AddCookie(adminCookie)
+	pageRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(pageRec, pageReq)
+	if pageRec.Code != http.StatusOK || !strings.Contains(pageRec.Body.String(), "data-password-protection-form") || !strings.Contains(pageRec.Body.String(), "data-protection-remove") {
+		t.Fatalf("admin protection panel = %d: %s", pageRec.Code, pageRec.Body.String())
+	}
+
+	status, body := passwordProtectionRequest(t, app, http.MethodPut, adminCookie, adminCSRF, "", "", `{"password":"admin-replacement"}`)
+	if status != http.StatusOK || !strings.Contains(body, `"password_protected":true`) {
+		t.Fatalf("admin set password = %d: %s", status, body)
+	}
+	for _, forbidden := range []string{"admin-replacement", "password_hash", "was_protected", "updated"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("password management response exposed %q: %s", forbidden, body)
+		}
+	}
+	status, body = passwordProtectionRequest(t, app, http.MethodDelete, adminCookie, adminCSRF, "", "", "")
+	if status != http.StatusOK || !strings.Contains(body, `"password_protected":false`) {
+		t.Fatalf("admin remove password = %d: %s", status, body)
+	}
+
+	if _, err := app.users.CreateUser(context.Background(), auth.UserCreate{Username: "developer1", Email: "developer1@example.local", Password: "developer passphrase", Role: auth.RoleDeveloper, Status: auth.StatusActive}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.users.CreateUser(context.Background(), auth.UserCreate{Username: "viewer1", Email: "viewer1@example.local", Password: "viewer passphrase", Role: auth.RoleViewer, Status: auth.StatusActive}); err != nil {
+		t.Fatal(err)
+	}
+	developerCookie, developerCSRF := loginSession(t, app, "developer1", "developer passphrase")
+	status, _ = passwordProtectionRequest(t, app, http.MethodPut, developerCookie, developerCSRF, "", "", `{"password":"creator-password"}`)
+	if status != http.StatusOK {
+		t.Fatalf("creator password update = %d, want 200", status)
+	}
+	store.metadata.CreatedBy = "another-developer"
+	status, _ = passwordProtectionRequest(t, app, http.MethodPut, developerCookie, developerCSRF, "", "", `{"password":"blocked-password"}`)
+	if status != http.StatusForbidden {
+		t.Fatalf("non-creator developer password update = %d, want 403", status)
+	}
+	viewerCookie, viewerCSRF := loginSession(t, app, "viewer1", "viewer passphrase")
+	status, _ = passwordProtectionRequest(t, app, http.MethodPut, viewerCookie, viewerCSRF, "", "", `{"password":"blocked-password"}`)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("viewer password update = %d, want 401", status)
+	}
+
+	scoped, _ := createAPIClientViaHTTP(t, app, adminCookie, adminCSRF, "Protection manager", []string{"secret:manage-protection"}, "")
+	status, _ = passwordProtectionRequest(t, app, http.MethodPut, nil, "", scoped.ClientID, scoped.ClientSecret, `{"password":"client-managed-password"}`)
+	if status != http.StatusOK {
+		t.Fatalf("scoped API client password update = %d, want 200", status)
+	}
+	unscoped, _ := createAPIClientViaHTTP(t, app, adminCookie, adminCSRF, "Protection blocked", []string{"secret:read-metadata"}, "")
+	status, _ = passwordProtectionRequest(t, app, http.MethodPut, nil, "", unscoped.ClientID, unscoped.ClientSecret, `{"password":"blocked-password"}`)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("unscoped API client password update = %d, want 401", status)
+	}
+}
+
+func passwordProtectionRequest(t *testing.T, app *Server, method string, cookie *http.Cookie, csrf, clientID, clientSecret, body string) (int, string) {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, "/api/v1/secret-links/"+testUUID.String()+"/password", reader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if cookie != nil {
+		req.AddCookie(cookie)
+		req.Header.Set("X-CSRF-Token", csrf)
+	}
+	if clientID != "" {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	return rec.Code, rec.Body.String()
+}
+
 func TestLocalTimeMarkupPreservesUTCFallbackAndHandlesEmptyValues(t *testing.T) {
 	value := time.Date(2026, 8, 3, 8, 30, 0, 123000000, time.FixedZone("IRST", 3*60*60+30*60))
 	markup := string(localTimeHTML(value))
@@ -933,6 +1023,7 @@ type uiStore struct {
 	inserts      int
 	auditEvents  []delivery.AuditEventRecord
 	dashboardErr error
+	metadata     *delivery.Metadata
 }
 
 func (s *uiStore) Insert(context.Context, delivery.InsertParams) error {
@@ -941,6 +1032,9 @@ func (s *uiStore) Insert(context.Context, delivery.InsertParams) error {
 }
 
 func (s *uiStore) Metadata(context.Context, uuid.UUID) (delivery.Metadata, error) {
+	if s.metadata != nil {
+		return *s.metadata, nil
+	}
 	now := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
 	consumed := now.Add(30 * time.Minute)
 	return delivery.Metadata{
@@ -1027,6 +1121,17 @@ func (s *uiStore) BeginConsume(context.Context, []byte, *string, uuid.UUID, time
 
 func (s *uiStore) RecordPasswordFailure(context.Context, []byte, string, time.Duration) (delivery.PasswordFailureResult, error) {
 	return delivery.PasswordFailureResult{ID: testUUID, Updated: true}, nil
+}
+func (s *uiStore) UpdatePasswordProtection(_ context.Context, id uuid.UUID, passwordHash *string) (delivery.ProtectionUpdateResult, error) {
+	meta, _ := s.Metadata(context.Background(), id)
+	if meta.Status != delivery.StatusActive || !meta.ExpiresAt.After(time.Now()) {
+		return delivery.ProtectionUpdateResult{}, nil
+	}
+	wasProtected := meta.PasswordProtected
+	meta.PasswordProtected = passwordHash != nil
+	meta.FailedAttempts = 0
+	s.metadata = &meta
+	return delivery.ProtectionUpdateResult{ID: id, PasswordProtected: passwordHash != nil, WasProtected: wasProtected, Updated: true}, nil
 }
 func (s *uiStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 func (s *uiStore) CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error) {

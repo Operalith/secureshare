@@ -221,6 +221,13 @@ type PasswordFailureResult struct {
 	Locked  bool
 }
 
+type ProtectionUpdateResult struct {
+	ID                uuid.UUID `json:"id"`
+	PasswordProtected bool      `json:"password_protected"`
+	WasProtected      bool      `json:"-"`
+	Updated           bool      `json:"-"`
+}
+
 type PrepareResponse struct {
 	MayAttempt       bool       `json:"may_attempt"`
 	PasswordRequired bool       `json:"password_required"`

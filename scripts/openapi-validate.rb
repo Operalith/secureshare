@@ -28,6 +28,7 @@ required_paths = %w[
   /api/v1/secret-links
   /api/v1/secret-links/{id}
   /api/v1/secret-links/{id}/revoke
+  /api/v1/secret-links/{id}/password
   /api/v1/secret-links/prepare
   /api/v1/secret-links/consume
   /api/v1/secret-links/send-email
@@ -76,6 +77,8 @@ required_schemas = %w[
   CreateSecretRequest
   CreateSecretResponse
   SecretMetadata
+  UpdateLinkPasswordRequest
+  ProtectionUpdateResponse
   SecretListResponse
   Pagination
   ErrorResponse
@@ -112,6 +115,10 @@ raise 'CreateSecretRequest must document delivery.email' unless delivery && sche
 
 scopes = schemas.dig('CreateAPIClientRequest', 'properties', 'scopes', 'items', 'enum')
 raise 'email:send scope must be documented' unless scopes&.include?('email:send')
+raise 'secret:manage-protection scope must be documented' unless scopes&.include?('secret:manage-protection')
+
+link_password = schemas.dig('UpdateLinkPasswordRequest', 'properties', 'password')
+raise 'managed link password must be writeOnly' unless link_password && link_password['writeOnly'] == true
 
 init = File.read(INIT_PATH)
 raise 'Swagger UI must disable persisted authorization' unless init.include?('persistAuthorization: false')

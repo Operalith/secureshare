@@ -358,6 +358,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RevokeSecretResponse'
+  /api/v1/secret-links/{id}/password:
+    put:
+      tags: [Secret Links]
+      summary: Set or replace link password protection
+      description: Requires `secret:manage-protection`. Admins and scoped API clients may manage any link; developers may manage links they created. Only active, unconsumed, unexpired, and unrevoked links can be changed. Replacing the password resets failed attempts and keeps the same one-time URL. Passwords are stored only as Argon2id hashes and are never returned.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLinkPasswordRequest'
+      responses:
+        '200':
+          description: Link password protection was set or replaced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectionUpdateResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/SecretUnavailable'
+    delete:
+      tags: [Secret Links]
+      summary: Remove link password protection
+      description: Requires `secret:manage-protection` and the same ownership rules as PUT. The one-time URL remains unchanged. Only active, unconsumed, unexpired, and unrevoked links can be changed.
+      security:
+        - ApiClientAuth: []
+        - LegacyAdminBearer: []
+        - CookieSession: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryID'
+      responses:
+        '200':
+          description: Link password protection was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectionUpdateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/SecretUnavailable'
   /api/v1/secret-links/prepare:
     post:
       tags: [Recipient]
@@ -1365,6 +1420,27 @@ components:
           type: integer
         payload_contains_sensitive:
           type: boolean
+    UpdateLinkPasswordRequest:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+          description: New link password. It is not recoverable and must be shared separately from the one-time URL.
+    ProtectionUpdateResponse:
+      type: object
+      required: [id, password_protected]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        password_protected:
+          type: boolean
     SecretListResponse:
       type: object
       required: [items, pagination]
@@ -1781,7 +1857,7 @@ components:
           type: array
           items:
             type: string
-            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read', 'email:send']
+            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'secret:manage-protection', 'dashboard:read', 'email:send']
         last_used_at:
           type: string
           format: date-time
@@ -1806,7 +1882,7 @@ components:
           minItems: 1
           items:
             type: string
-            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'dashboard:read', 'email:send']
+            enum: ['secret:create', 'secret:list', 'secret:read-metadata', 'secret:revoke', 'secret:manage-protection', 'dashboard:read', 'email:send']
         expires_at:
           type: string
           format: date-time

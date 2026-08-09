@@ -279,6 +279,93 @@ func TestPasswordAttemptLimitReturnsGenericUnavailableIntegration(t *testing.T) 
 	}
 }
 
+func TestPasswordProtectionManagementIntegration(t *testing.T) {
+	client := integrationClient(t)
+	authHeader := map[string]string{"Authorization": "Bearer " + client.adminKey}
+
+	replaced := client.create(t, map[string]any{
+		"title":               "Replace managed password",
+		"secret":              map[string]any{"value": "replacement-result"},
+		"expires_in_seconds":  900,
+		"password":            "old-link-password",
+		"max_failed_attempts": 5,
+	})
+	status, _ := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": replaced.Token, "password": "wrong-password"}, nil)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("pre-replacement wrong password = %d, want 401", status)
+	}
+	status, response := client.putJSON(t, "/api/v1/secret-links/"+replaced.ID+"/password", map[string]any{"password": "replacement-link-password"}, authHeader)
+	if status != http.StatusOK || response["password_protected"] != true {
+		t.Fatalf("replace password = %d %#v, want protected", status, response)
+	}
+	rawResponse, _ := json.Marshal(response)
+	for _, forbidden := range []string{"old-link-password", "replacement-link-password", "password_hash", "was_protected", "updated"} {
+		if strings.Contains(string(rawResponse), forbidden) {
+			t.Fatalf("password update response exposed %q: %s", forbidden, rawResponse)
+		}
+	}
+	client.assertPasswordState(t, replaced.ID, "replacement-link-password", 0, true)
+	status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": replaced.Token, "password": "old-link-password"}, nil)
+	if status != http.StatusUnauthorized || body["code"] != "LINK_PASSWORD_INVALID" {
+		t.Fatalf("old password after replacement = %d %#v, want 401", status, body)
+	}
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": replaced.Token, "password": "replacement-link-password"}, nil)
+	if status != http.StatusOK || body["secret"].(map[string]any)["value"] != "replacement-result" {
+		t.Fatalf("replacement password on same token = %d %#v", status, body)
+	}
+	status, response = client.putJSON(t, "/api/v1/secret-links/"+replaced.ID+"/password", map[string]any{"password": "blocked-after-consume"}, authHeader)
+	if status != http.StatusGone || response["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("consumed password update = %d %#v, want generic 410", status, response)
+	}
+
+	set := client.create(t, map[string]any{
+		"title": "Set managed password", "secret": map[string]any{"value": "set-result"}, "expires_in_seconds": 900,
+	})
+	status, response = client.putJSON(t, "/api/v1/secret-links/"+set.ID+"/password", map[string]any{"password": "new-managed-password"}, authHeader)
+	if status != http.StatusOK || response["password_protected"] != true {
+		t.Fatalf("set password = %d %#v", status, response)
+	}
+	client.assertPasswordState(t, set.ID, "new-managed-password", 0, true)
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": set.Token, "password": "new-managed-password"}, nil)
+	if status != http.StatusOK || body["secret"].(map[string]any)["value"] != "set-result" {
+		t.Fatalf("new password on same token = %d %#v", status, body)
+	}
+
+	removed := client.create(t, map[string]any{
+		"title": "Remove managed password", "secret": map[string]any{"value": "removed-result"}, "expires_in_seconds": 900, "password": "remove-me",
+	})
+	status, response = client.deleteJSON(t, "/api/v1/secret-links/"+removed.ID+"/password", authHeader)
+	if status != http.StatusOK || response["password_protected"] != false {
+		t.Fatalf("remove password = %d %#v", status, response)
+	}
+	client.assertPasswordState(t, removed.ID, "", 0, false)
+	status, body = client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": removed.Token}, nil)
+	if status != http.StatusOK || body["secret"].(map[string]any)["value"] != "removed-result" {
+		t.Fatalf("password-free consume on same token = %d %#v", status, body)
+	}
+
+	revoked := client.create(t, map[string]any{"title": "Revoked protection target", "secret": "revoked", "expires_in_seconds": 900})
+	status, _ = client.postJSON(t, "/api/v1/secret-links/"+revoked.ID+"/revoke", map[string]any{}, authHeader)
+	if status != http.StatusOK {
+		t.Fatalf("revoke protection target = %d", status)
+	}
+	status, response = client.putJSON(t, "/api/v1/secret-links/"+revoked.ID+"/password", map[string]any{"password": "blocked"}, authHeader)
+	if status != http.StatusGone || response["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("revoked password update = %d %#v, want generic 410", status, response)
+	}
+
+	expired := client.create(t, map[string]any{"title": "Expired protection target", "secret": "expired", "expires_in_seconds": 900})
+	client.expireSecret(t, expired.ID)
+	status, response = client.deleteJSON(t, "/api/v1/secret-links/"+expired.ID+"/password", authHeader)
+	if status != http.StatusGone || response["code"] != "SECRET_UNAVAILABLE" {
+		t.Fatalf("expired password removal = %d %#v, want generic 410", status, response)
+	}
+
+	for _, eventType := range []string{"secret.password_set", "secret.password_replaced", "secret.password_removed"} {
+		client.assertAuditEvent(t, eventType)
+	}
+}
+
 func TestUnavailableAndUnauthorizedIntegration(t *testing.T) {
 	client := integrationClient(t)
 	status, body := client.postJSON(t, "/api/v1/secret-links/consume", map[string]any{"token": "not-real"}, nil)
@@ -458,6 +545,11 @@ func (c *integration) putJSON(t *testing.T, path string, payload any, headers ma
 	return c.doJSON(t, http.MethodPut, path, payload, headers)
 }
 
+func (c *integration) deleteJSON(t *testing.T, path string, headers map[string]string) (int, map[string]any) {
+	t.Helper()
+	return c.doJSON(t, http.MethodDelete, path, nil, headers)
+}
+
 func (c *integration) doJSON(t *testing.T, method, path string, payload any, headers map[string]string) (int, map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(payload)
@@ -523,6 +615,40 @@ func (c *integration) assertCiphertextOnly(t *testing.T, id string, marker strin
 	}
 	if !strings.HasPrefix(encrypted, "vault:v") {
 		t.Fatalf("encrypted payload did not look like Vault ciphertext: %q", encrypted)
+	}
+}
+
+func (c *integration) assertPasswordState(t *testing.T, id, password string, attempts int, protected bool) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, c.databaseURL)
+	if err != nil {
+		t.Fatalf("database connect failed: %v", err)
+	}
+	defer conn.Close(ctx)
+	var hash *string
+	var failedAttempts int
+	if err := conn.QueryRow(ctx, `SELECT password_hash, failed_attempts FROM secret_deliveries WHERE id = $1`, id).Scan(&hash, &failedAttempts); err != nil {
+		t.Fatalf("query password state failed: %v", err)
+	}
+	if failedAttempts != attempts || (hash != nil) != protected {
+		t.Fatalf("password state protected=%t attempts=%d, want protected=%t attempts=%d", hash != nil, failedAttempts, protected, attempts)
+	}
+	if protected && (hash == nil || *hash == password || !strings.HasPrefix(*hash, "$argon2id$")) {
+		t.Fatal("managed password was not stored as an Argon2id hash")
+	}
+}
+
+func (c *integration) expireSecret(t *testing.T, id string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, c.databaseURL)
+	if err != nil {
+		t.Fatalf("database connect failed: %v", err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, `UPDATE secret_deliveries SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`, id); err != nil {
+		t.Fatalf("expire secret fixture failed: %v", err)
 	}
 }
 

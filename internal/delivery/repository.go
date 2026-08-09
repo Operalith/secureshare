@@ -355,6 +355,39 @@ func (r *Repository) RecordPasswordFailure(ctx context.Context, tokenHash []byte
 	return result, nil
 }
 
+func (r *Repository) UpdatePasswordProtection(ctx context.Context, id uuid.UUID, passwordHash *string) (ProtectionUpdateResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var result ProtectionUpdateResult
+	err := r.db.QueryRow(ctx, `
+		WITH candidate AS (
+			SELECT id, password_hash IS NOT NULL AS was_protected
+			FROM secret_deliveries
+			WHERE id = $1
+			  AND status = 'active'
+			  AND expires_at > NOW()
+			FOR UPDATE
+		), updated AS (
+			UPDATE secret_deliveries AS delivery
+			SET password_hash = $2,
+				failed_attempts = 0,
+				updated_at = NOW()
+			FROM candidate
+			WHERE delivery.id = candidate.id
+			RETURNING delivery.id, candidate.was_protected, delivery.password_hash IS NOT NULL AS password_protected
+		)
+		SELECT id, was_protected, password_protected FROM updated
+	`, id, passwordHash).Scan(&result.ID, &result.WasProtected, &result.PasswordProtected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProtectionUpdateResult{}, nil
+	}
+	if err != nil {
+		return ProtectionUpdateResult{}, err
+	}
+	result.Updated = true
+	return result, nil
+}
+
 func (r *Repository) RestoreConsume(ctx context.Context, id uuid.UUID, leaseID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

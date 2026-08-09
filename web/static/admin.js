@@ -204,12 +204,56 @@
       qsa("[data-delivery-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.deliveryPanel !== next));
     }
 
-    function rowTemplate() {
+    const fieldPresets = {
+      username: { sensitive: false },
+      password: { sensitive: true },
+      api_key: { sensitive: true },
+      client_id: { sensitive: false },
+      client_secret: { sensitive: true },
+      access_token: { sensitive: true },
+      refresh_token: { sensitive: true },
+      host: { sensitive: false },
+      port: { sensitive: false },
+      database: { sensitive: false },
+      connection_string: { sensitive: true, multiline: true },
+      private_key: { sensitive: true, multiline: true },
+      certificate: { sensitive: false, multiline: true },
+    };
+
+    const structuredError = qs("[data-structured-error]", form);
+    const fieldPicker = qs("#field-preset", form);
+
+    function rowTemplate(preset = {}) {
       const row = document.createElement("div");
       row.className = "secure-field-row";
-      row.innerHTML = '<input name="kv_key" placeholder="field_name" list="field-presets" autocomplete="off" aria-label="Field key"><span class="input-with-action"><input name="kv_value" type="password" placeholder="Value" autocomplete="off" aria-label="Field value" data-secret-input><button type="button" class="ghost compact" data-toggle-secret aria-label="Show value">Show</button></span><label class="checkbox-line compact-check"><input type="checkbox" name="kv_sensitive" checked> Sensitive</label><label class="checkbox-line compact-check"><input type="checkbox" name="kv_multiline"> Multiline</label><div class="row-actions"><button type="button" class="icon-button" data-move-row="up" aria-label="Move field up">↑</button><button type="button" class="icon-button" data-move-row="down" aria-label="Move field down">↓</button><button type="button" class="icon-button danger-lite" data-remove-row aria-label="Remove field">×</button></div>';
+      row.innerHTML = '<input name="kv_key" placeholder="field_name" autocomplete="off" aria-label="Field key"><span class="input-with-action"><input name="kv_value" type="password" placeholder="Value" autocomplete="off" aria-label="Field value" data-secret-input><button type="button" class="ghost compact" data-toggle-secret aria-label="Show value">Show</button></span><label class="checkbox-line compact-check"><input type="checkbox" name="kv_sensitive"> Sensitive</label><label class="checkbox-line compact-check"><input type="checkbox" name="kv_multiline"> Multiline</label><div class="row-actions"><button type="button" class="icon-button" data-move-row="up" aria-label="Move field up">↑</button><button type="button" class="icon-button" data-move-row="down" aria-label="Move field down">↓</button><button type="button" class="icon-button danger-lite" data-remove-row aria-label="Remove field">×</button></div>';
+      qs('input[name="kv_key"]', row).value = preset.name || "";
+      qs('input[name="kv_sensitive"]', row).checked = preset.sensitive !== false;
+      qs('input[name="kv_multiline"]', row).checked = Boolean(preset.multiline);
       setupSecretToggles(row);
       return row;
+    }
+
+    function currentFieldNames() {
+      return new Set(qsa('input[name="kv_key"]', form).map((input) => input.value.trim().toLowerCase()).filter(Boolean));
+    }
+
+    function addStructuredField(name = "") {
+      if (qsa(".secure-field-row", kvRows).length >= MAX_FIELDS) {
+        if (structuredError) structuredError.textContent = `Structured secrets are limited to ${MAX_FIELDS} fields.`;
+        return false;
+      }
+      const normalized = name.trim().toLowerCase();
+      if (normalized && currentFieldNames().has(normalized)) {
+        if (structuredError) structuredError.textContent = `${labelForField(name)} has already been added.`;
+        return false;
+      }
+      const preset = normalized ? { name: normalized, ...(fieldPresets[normalized] || {}) } : {};
+      const row = rowTemplate(preset);
+      kvRows.appendChild(row);
+      if (structuredError) structuredError.textContent = "";
+      qs(normalized ? 'input[name="kv_value"]' : 'input[name="kv_key"]', row)?.focus();
+      return true;
     }
 
     function structuredPayload() {
@@ -219,6 +263,7 @@
       const multiline = qsa('input[name="kv_multiline"]', form);
       const seen = new Set();
       const fields = [];
+      if (keys.length === 0) throw new Error("Add at least one structured field.");
       for (let index = 0; index < keys.length; index += 1) {
         const key = keys[index].value.trim();
         if (!key) throw new Error("Every structured field needs a key.");
@@ -298,22 +343,22 @@
     });
 
     qs("#add-kv-row")?.addEventListener("click", () => {
-      if (qsa(".secure-field-row", kvRows).length >= MAX_FIELDS) {
-        toast("Structured secrets are limited to 20 fields.");
-        return;
-      }
-      kvRows.appendChild(rowTemplate());
+      addStructuredField();
+    });
+
+    fieldPicker?.addEventListener("change", () => {
+      const selected = fieldPicker.value;
+      fieldPicker.value = "";
+      if (!selected) return;
+      addStructuredField(selected === "__custom__" ? "" : selected);
     });
 
     kvRows?.addEventListener("click", (event) => {
       const row = event.target.closest(".secure-field-row");
       if (!row) return;
       if (event.target.closest("[data-remove-row]")) {
-        if (qsa(".secure-field-row", kvRows).length === 1) {
-          toast("At least one field is required.");
-          return;
-        }
         row.remove();
+        if (structuredError) structuredError.textContent = "";
       }
       if (event.target.closest('[data-move-row="up"]') && row.previousElementSibling) {
         kvRows.insertBefore(row, row.previousElementSibling);
@@ -409,6 +454,9 @@
       setMode("structured");
       setDeliveryMode("link");
       setStatus("");
+      kvRows.replaceChildren();
+      if (fieldPicker) fieldPicker.value = "";
+      if (structuredError) structuredError.textContent = "";
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
@@ -456,6 +504,91 @@
       const summary = qs("#password-summary");
       if (summary) summary.textContent = password ? "Password protection is enabled for this link." : "Password protection is optional.";
       if (createdPayload) createdPayload = null;
+    });
+  }
+
+  function setupPasswordProtection() {
+    const form = qs("[data-password-protection-form]");
+    if (!form) return;
+    const secretID = form.dataset.secretId;
+    const error = qs("[data-protection-error]", form);
+    const save = qs("[data-protection-save]", form);
+    const remove = qs("[data-protection-remove]", form);
+
+    function updateProtectionUI(protectedNow) {
+      form.dataset.passwordProtected = String(protectedNow);
+      const status = qs("[data-protection-status]");
+      const badge = qs("[data-protection-badge]");
+      const guidance = qs("[data-protection-guidance]");
+      if (status) status.textContent = protectedNow ? "Yes" : "No";
+      if (badge) badge.textContent = protectedNow ? "Protected" : "Not protected";
+      if (guidance) guidance.textContent = protectedNow
+        ? "The current link password cannot be recovered. If it was lost, you can replace it with a new password."
+        : "This active link does not currently require a separate password.";
+      if (save) save.textContent = protectedNow ? "Replace password" : "Set password";
+      if (remove) remove.classList.toggle("hidden", !protectedNow);
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (error) error.textContent = "";
+      const password = String(new FormData(form).get("password") || "");
+      const wasProtected = form.dataset.passwordProtected === "true";
+      let updated = false;
+      setButtonLoading(save, true);
+      try {
+        const response = await fetch(`/api/v1/secret-links/${secretID}/password`, {
+          method: "PUT",
+          credentials: "same-origin",
+          headers: csrfHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ password }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (error) error.textContent = body.message || "Link password could not be updated.";
+          return;
+        }
+        form.reset();
+        updated = true;
+      } catch {
+        if (error) error.textContent = "Link password could not be updated. Check your connection and try again.";
+      } finally {
+        setButtonLoading(save, false);
+      }
+      if (updated) {
+        updateProtectionUI(true);
+        toast(wasProtected ? "Link password replaced." : "Link password set.");
+      }
+    });
+
+    remove?.addEventListener("click", async () => {
+      const ok = await confirmAction("Remove link password?", "The same one-time URL will remain active without password protection.");
+      if (!ok) return;
+      if (error) error.textContent = "";
+      setButtonLoading(remove, true);
+      let updated = false;
+      try {
+        const response = await fetch(`/api/v1/secret-links/${secretID}/password`, {
+          method: "DELETE",
+          credentials: "same-origin",
+          headers: csrfHeaders(),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (error) error.textContent = body.message || "Link password could not be removed.";
+          return;
+        }
+        form.reset();
+        updated = true;
+      } catch {
+        if (error) error.textContent = "Link password could not be removed. Check your connection and try again.";
+      } finally {
+        setButtonLoading(remove, false);
+      }
+      if (updated) {
+        updateProtectionUI(false);
+        toast("Link password removed.");
+      }
     });
   }
 
@@ -918,6 +1051,7 @@
   setupSecretToggles();
   setupLogin();
   setupCreateSecret();
+  setupPasswordProtection();
   setupRevokeButtons();
   setupUserManagement();
   setupAPIClients();

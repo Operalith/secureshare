@@ -38,6 +38,7 @@ type Store interface {
 	FindConsumeCandidate(context.Context, []byte, time.Duration) (ConsumeCandidate, bool, error)
 	BeginConsume(context.Context, []byte, *string, uuid.UUID, time.Duration) (ConsumeCandidate, bool, error)
 	RecordPasswordFailure(context.Context, []byte, string, time.Duration) (PasswordFailureResult, error)
+	UpdatePasswordProtection(context.Context, uuid.UUID, *string) (ProtectionUpdateResult, error)
 	RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error
 	CompleteConsume(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	Cleanup(context.Context, time.Duration, time.Duration, time.Duration, time.Duration, time.Duration) (CleanupResult, error)
@@ -176,6 +177,47 @@ func (s *Service) Revoke(ctx context.Context, id uuid.UUID, actorID, ipHash, req
 	}
 	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &id, ActorID: actorID, Type: "secret.revoked", Result: auditResult, IPHash: ipHash, RequestID: requestID})
 	return result, err
+}
+
+func (s *Service) SetPasswordProtection(ctx context.Context, id uuid.UUID, password, actorID, ipHash, requestID string) (ProtectionUpdateResult, error) {
+	if strings.TrimSpace(password) == "" || len(password) > 1024 {
+		return ProtectionUpdateResult{}, ErrInvalidRequest
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return ProtectionUpdateResult{}, fmt.Errorf("%w: password hash failed", ErrInternal)
+	}
+	start := time.Now()
+	result, err := s.store.UpdatePasswordProtection(ctx, id, &hash)
+	s.observeDatabase(start, "set_password_protection")
+	if err != nil {
+		return ProtectionUpdateResult{}, fmt.Errorf("%w: password protection update failed", ErrInternal)
+	}
+	if !result.Updated {
+		return ProtectionUpdateResult{}, ErrSecretUnavailable
+	}
+	eventType := "secret.password_set"
+	if result.WasProtected {
+		eventType = "secret.password_replaced"
+	}
+	s.recordAudit(ctx, AuditEventRecord{DeliveryID: &id, ActorID: actorID, Type: eventType, Result: "success", IPHash: ipHash, RequestID: requestID})
+	return result, nil
+}
+
+func (s *Service) RemovePasswordProtection(ctx context.Context, id uuid.UUID, actorID, ipHash, requestID string) (ProtectionUpdateResult, error) {
+	start := time.Now()
+	result, err := s.store.UpdatePasswordProtection(ctx, id, nil)
+	s.observeDatabase(start, "remove_password_protection")
+	if err != nil {
+		return ProtectionUpdateResult{}, fmt.Errorf("%w: password protection removal failed", ErrInternal)
+	}
+	if !result.Updated {
+		return ProtectionUpdateResult{}, ErrSecretUnavailable
+	}
+	if result.WasProtected {
+		s.recordAudit(ctx, AuditEventRecord{DeliveryID: &id, ActorID: actorID, Type: "secret.password_removed", Result: "success", IPHash: ipHash, RequestID: requestID})
+	}
+	return result, nil
 }
 
 func (s *Service) RecordAudit(ctx context.Context, event AuditEventRecord) {

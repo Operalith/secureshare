@@ -24,17 +24,19 @@ var allowedAPIScopeList = []string{
 	"secret:list",
 	"secret:read-metadata",
 	"secret:revoke",
+	"secret:manage-protection",
 	"dashboard:read",
 	"email:send",
 }
 
 var allowedAPIScopes = map[string]bool{
-	"secret:create":        true,
-	"secret:list":          true,
-	"secret:read-metadata": true,
-	"secret:revoke":        true,
-	"dashboard:read":       true,
-	"email:send":           true,
+	"secret:create":            true,
+	"secret:list":              true,
+	"secret:read-metadata":     true,
+	"secret:revoke":            true,
+	"secret:manage-protection": true,
+	"dashboard:read":           true,
+	"email:send":               true,
 }
 
 type APIClient struct {

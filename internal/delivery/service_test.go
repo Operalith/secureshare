@@ -198,6 +198,63 @@ func TestVaultFailureRestoresConsumeLease(t *testing.T) {
 	}
 }
 
+func TestPasswordProtectionManagementHashesResetsAndAudits(t *testing.T) {
+	id := uuid.New()
+	store := &fakeStore{
+		protectionResult: ProtectionUpdateResult{ID: id, Updated: true},
+	}
+	svc := testService(store, &fakeVault{})
+
+	result, err := svc.SetPasswordProtection(context.Background(), id, "new-link-password", "developer:alice", "ip-hash", "request-id")
+	if err != nil {
+		t.Fatalf("set password protection failed: %v", err)
+	}
+	if !result.Updated || store.updatedPasswordHash == nil {
+		t.Fatal("set password protection did not persist a password hash")
+	}
+	if *store.updatedPasswordHash == "new-link-password" || !auth.VerifyPassword("new-link-password", *store.updatedPasswordHash) {
+		t.Fatal("set password protection did not use a verifiable Argon2id hash")
+	}
+	if got := store.auditEvents[len(store.auditEvents)-1]; got.Type != "secret.password_set" || got.ActorID != "developer:alice" {
+		t.Fatalf("set audit event = %#v", got)
+	}
+
+	store.protectionResult.WasProtected = true
+	if _, err := svc.SetPasswordProtection(context.Background(), id, "replacement-password", "admin", "ip-hash", "request-id-2"); err != nil {
+		t.Fatalf("replace password protection failed: %v", err)
+	}
+	if got := store.auditEvents[len(store.auditEvents)-1]; got.Type != "secret.password_replaced" {
+		t.Fatalf("replace audit event = %#v", got)
+	}
+
+	if _, err := svc.RemovePasswordProtection(context.Background(), id, "admin", "ip-hash", "request-id-3"); err != nil {
+		t.Fatalf("remove password protection failed: %v", err)
+	}
+	if store.updatedPasswordHash != nil {
+		t.Fatal("remove password protection did not clear the password hash")
+	}
+	if got := store.auditEvents[len(store.auditEvents)-1]; got.Type != "secret.password_removed" {
+		t.Fatalf("remove audit event = %#v", got)
+	}
+}
+
+func TestPasswordProtectionManagementRejectsInvalidOrUnavailableLinks(t *testing.T) {
+	store := &fakeStore{}
+	svc := testService(store, &fakeVault{})
+	if _, err := svc.SetPasswordProtection(context.Background(), uuid.New(), " ", "admin", "", ""); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("empty password error = %v, want invalid request", err)
+	}
+	if store.protectionUpdates != 0 {
+		t.Fatal("invalid password reached persistence")
+	}
+	if _, err := svc.SetPasswordProtection(context.Background(), uuid.New(), "new-password", "admin", "", ""); !errors.Is(err, ErrSecretUnavailable) {
+		t.Fatalf("inactive link error = %v, want unavailable", err)
+	}
+	if _, err := svc.RemovePasswordProtection(context.Background(), uuid.New(), "admin", "", ""); !errors.Is(err, ErrSecretUnavailable) {
+		t.Fatalf("inactive link removal error = %v, want unavailable", err)
+	}
+}
+
 func testService(store Store, vault Vault) *Service {
 	cfg := config.Config{
 		AppBaseURL:        "http://localhost:8080",
@@ -230,11 +287,15 @@ func (v *fakeVault) Ready(context.Context) error {
 }
 
 type fakeStore struct {
-	candidate        ConsumeCandidate
-	restored         bool
-	completed        bool
-	beginCalls       int
-	passwordFailures int
+	candidate           ConsumeCandidate
+	restored            bool
+	completed           bool
+	beginCalls          int
+	passwordFailures    int
+	protectionResult    ProtectionUpdateResult
+	protectionUpdates   int
+	updatedPasswordHash *string
+	auditEvents         []AuditEventRecord
 }
 
 func (s *fakeStore) Insert(context.Context, InsertParams) error { return nil }
@@ -253,7 +314,10 @@ func (s *fakeStore) RecentActivity(context.Context, int) ([]ActivityEvent, error
 func (s *fakeStore) Revoke(context.Context, uuid.UUID) (RevokeResult, error) {
 	return RevokeResult{Status: StatusRevoked, Revoked: true, Found: true}, nil
 }
-func (s *fakeStore) RecordAuditEvent(context.Context, AuditEventRecord) error { return nil }
+func (s *fakeStore) RecordAuditEvent(_ context.Context, event AuditEventRecord) error {
+	s.auditEvents = append(s.auditEvents, event)
+	return nil
+}
 func (s *fakeStore) Prepare(context.Context, []byte) (PrepareResponse, error) {
 	return PrepareResponse{MayAttempt: true}, nil
 }
@@ -273,6 +337,11 @@ func (s *fakeStore) BeginConsume(context.Context, []byte, *string, uuid.UUID, ti
 func (s *fakeStore) RecordPasswordFailure(context.Context, []byte, string, time.Duration) (PasswordFailureResult, error) {
 	s.passwordFailures++
 	return PasswordFailureResult{ID: s.candidate.ID, Updated: true}, nil
+}
+func (s *fakeStore) UpdatePasswordProtection(_ context.Context, _ uuid.UUID, passwordHash *string) (ProtectionUpdateResult, error) {
+	s.protectionUpdates++
+	s.updatedPasswordHash = passwordHash
+	return s.protectionResult, nil
 }
 func (s *fakeStore) RestoreConsume(context.Context, uuid.UUID, uuid.UUID) error {
 	s.restored = true

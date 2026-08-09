@@ -177,6 +177,20 @@ done
 locked="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links/consume" -H "Content-Type: application/json" --data "{\"token\":\"${password_token}\",\"password\":\"correct-password\"}")"
 assert_status "$(status_of "${locked}")" "410" "password lockout"
 
+managed_password="${CANARY}-managed-password"
+managed_body="$(create_secret "security-managed-password" "{\"value\":\"${CANARY}-managed\"}" ",\"password\":\"initial-managed-password\"")"
+managed_id="$(json_get id <<<"${managed_body}")"
+managed_token="$(token_from_body <<<"${managed_body}")"
+managed_replace="$(request_with_status -X PUT "${BASE_URL}/api/v1/secret-links/${managed_id}/password" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  --data "{\"password\":\"${managed_password}\"}")"
+assert_status "$(status_of "${managed_replace}")" "200" "replace managed password"
+old_managed="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links/consume" -H "Content-Type: application/json" --data "{\"token\":\"${managed_token}\",\"password\":\"initial-managed-password\"}")"
+assert_status "$(status_of "${old_managed}")" "401" "old managed password"
+new_managed="$(request_with_status -X POST "${BASE_URL}/api/v1/secret-links/consume" -H "Content-Type: application/json" --data "{\"token\":\"${managed_token}\",\"password\":\"${managed_password}\"}")"
+assert_status "$(status_of "${new_managed}")" "200" "new managed password"
+
 headers="$(mktemp)"
 curl -sS -D "${headers}" -o /dev/null "${BASE_URL}/s"
 grep -qi '^Cache-Control: .*no-store' "${headers}"
@@ -191,6 +205,10 @@ if compose_logs | grep -F "${CANARY}" >/dev/null; then
 fi
 if compose_logs | grep -F "${first_token}" >/dev/null; then
   echo "raw token appeared in app logs" >&2
+  exit 1
+fi
+if compose_logs | grep -F "${managed_password}" >/dev/null; then
+  echo "managed link password appeared in app logs" >&2
   exit 1
 fi
 

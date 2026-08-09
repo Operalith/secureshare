@@ -279,7 +279,8 @@ func (s *Server) handleSecretListPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
-	if !s.requirePage(w, r, "secret:read-metadata") {
+	session, ok := s.requirePageSession(w, r, "secret:read-metadata")
+	if !ok {
 		return
 	}
 	idText := strings.TrimPrefix(r.URL.Path, "/admin/secrets/")
@@ -303,7 +304,14 @@ func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
 			timeline = append(timeline, event)
 		}
 	}
-	s.render(w, "secret_detail.html", s.adminData(r, map[string]any{"Title": "Secret Metadata", "Secret": meta, "Timeline": timeline}))
+	canManageProtection := session.Permissions["secret:manage-protection"] && (session.Role == auth.RoleAdmin || meta.CreatedBy == session.Username)
+	s.render(w, "secret_detail.html", s.adminData(r, map[string]any{
+		"Title":               "Secret Metadata",
+		"Secret":              meta,
+		"Timeline":            timeline,
+		"CanManageProtection": canManageProtection,
+		"ProtectionMutable":   meta.Status == delivery.StatusActive && meta.ExpiresAt.After(time.Now()),
+	}))
 }
 
 func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
@@ -1391,9 +1399,49 @@ func (s *Server) handleSecretLinkByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": result.Status, "revoked": result.Revoked})
+	case action == "password" && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+		actor, ok := s.requireAPI(w, r, "secret:manage-protection")
+		if !ok {
+			return
+		}
+		meta, err := s.delivery.Metadata(r.Context(), id)
+		if err != nil {
+			s.writeDeliveryError(w, err)
+			return
+		}
+		if !canManageProtection(actor, meta) {
+			s.writeError(w, delivery.CodeForbidden, "Forbidden.", http.StatusForbidden)
+			return
+		}
+		ipHash := middleware.IPHash(s.cfg.RequestIPHashPepper, r)
+		requestID := middleware.RequestID(r.Context())
+		var result delivery.ProtectionUpdateResult
+		if r.Method == http.MethodPut {
+			var req struct {
+				Password string `json:"password"`
+			}
+			if !s.decodeJSON(w, r, 4096, &req) {
+				return
+			}
+			result, err = s.delivery.SetPasswordProtection(r.Context(), id, req.Password, actor.ActorID, ipHash, requestID)
+		} else {
+			result, err = s.delivery.RemovePasswordProtection(r.Context(), id, actor.ActorID, ipHash, requestID)
+		}
+		if err != nil {
+			s.writeDeliveryError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, result)
 	default:
 		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
 	}
+}
+
+func canManageProtection(actor actor, meta delivery.Metadata) bool {
+	if actor.APIClient || actor.Bearer || actor.Role == auth.RoleAdmin {
+		return true
+	}
+	return actor.Username != "" && meta.CreatedBy == actor.Username
 }
 
 func (s *Server) handleDashboardAPI(w http.ResponseWriter, r *http.Request) {
@@ -1985,6 +2033,12 @@ func eventLabel(eventType string) string {
 		return "Secret expired"
 	case "secret.password_failed":
 		return "Password attempt failed"
+	case "secret.password_set":
+		return "Link password set"
+	case "secret.password_replaced":
+		return "Link password replaced"
+	case "secret.password_removed":
+		return "Link password removed"
 	default:
 		return eventType
 	}
