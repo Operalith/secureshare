@@ -77,6 +77,8 @@ async function assertRecipientTypography(page, locale, state) {
   const metrics = await page.evaluate(({ expectedLocale, expectedState }) => {
     const visible = (element) => element && getComputedStyle(element).display !== "none" && element.getClientRects().length > 0;
     const card = document.querySelector(".recipient-card").getBoundingClientRect();
+    const heading = document.querySelector(".recipient-heading").getBoundingClientRect();
+    const intro = document.querySelector("#recipient-intro").getBoundingClientRect();
     const title = document.querySelector("#recipient-title");
     const titleStyle = getComputedStyle(title);
     const titleRect = title.getBoundingClientRect();
@@ -91,6 +93,8 @@ async function assertRecipientTypography(page, locale, state) {
       viewportWidth: document.documentElement.clientWidth,
       viewportHeight: document.documentElement.clientHeight,
       cardHeight: card.height,
+      headingWidth: heading.width,
+      introWidth: intro.width,
       titleVisible: visible(title),
       titleSize: Number.parseFloat(titleStyle.fontSize),
       titleWeight: titleStyle.fontWeight,
@@ -108,6 +112,9 @@ async function assertRecipientTypography(page, locale, state) {
   expect(metrics.locale).toBe(locale);
   expect(metrics.state).toBe(state);
   expect(metrics.controlHeights.every((height) => height >= 44)).toBe(true);
+  if (state === "ready") {
+    expect(Math.abs(metrics.headingWidth - metrics.introWidth)).toBeLessThanOrEqual(1);
+  }
   if (metrics.titleVisible) {
     const limits = locale === "fa" ? [28, 33.6] : [28.8, 36];
     expect(metrics.titleSize).toBeGreaterThanOrEqual(limits[0] - 0.1);
