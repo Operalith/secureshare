@@ -121,6 +121,10 @@ Check 375×812, 390×844, and 768×1024.
 - [ ] Recipient cards fit 375×812, 390×844, 768×1024, 1366×768, 1440×900, and 1920×1080 without horizontal overflow.
 - [ ] Persian loads local Vazirmatn with computed family first, `document.fonts` reports it loaded, and the request returns 200 with `font/woff2`.
 - [ ] Main recipient titles stay within 28–33.6px for Persian and 28.8–36px for English; secondary state titles stay within 22.4–28px.
+- [ ] Ready uses the secure-green semantic status alert; Ready and Revealed use the same soft-red irreversible-warning alert in English and Persian.
+- [ ] Unavailable keeps a neutral page/card/title and applies soft-red emphasis only to its icon and message callout.
+- [ ] English recipient expiration is Gregorian; Persian expiration is Jalali. Both preserve the original UTC ISO-8601 value in the API and `<time datetime>` while displaying browser-local time.
+- [ ] Ready, Revealed, and Unavailable alerts remain readable and restrained in both light and dark color schemes.
 
 ## Interaction Persistence
 

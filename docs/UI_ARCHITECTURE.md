@@ -84,9 +84,9 @@ The theme control cycles `system`, `light`, and `dark` through `/api/v1/me/prefe
 
 ## Public Recipient Experience
 
-`/s` is a server-rendered page outside the authenticated shell. `internal/publicexperience` owns the English/Persian catalog, locale validation, text direction, and localized Gregorian date formatting. The reveal script consumes localized strings embedded by the server and displays exactly one explicit state panel: `ready`, `password_error`, `revealing`, `revealed`, or `unavailable`.
+`/s` is a server-rendered page outside the authenticated shell. `internal/publicexperience` owns the English/Persian catalog, locale validation, text direction, and recipient date locale. UTC ISO-8601 timestamps remain unchanged in storage, APIs, and `<time datetime>` attributes; the shared browser formatter presents English dates with the Gregorian calendar and Persian dates with the Jalali calendar in the browser's local timezone. The reveal script consumes localized strings embedded by the server and displays exactly one explicit state panel: `ready`, `password_error`, `revealing`, `revealed`, or `unavailable`.
 
-The browser removes the fragment and keeps its raw token only in page memory. Wrong passwords preserve that in-memory token and return the form to an enabled retry state; success removes all reveal controls. Refresh loses the token and shows the safe session-lost variant of unavailable. The Persian page uses RTL layout and locally hosted Vazirmatn, with LTR/isolate rules and the monospace stack preserved on technical values. No external font or stylesheet is fetched.
+The browser removes the fragment and keeps its raw token only in page memory. Wrong passwords preserve that in-memory token and return the form to an enabled retry state; success removes all reveal controls. Refresh loses the token and shows the safe session-lost variant of unavailable. Shared semantic recipient alerts use restrained secure-green status tokens and soft-red irreversible-warning tokens, with separate accessible light/dark values. Only the unavailable icon and message callout receive red emphasis. The Persian page uses RTL layout and locally hosted Vazirmatn, with LTR/isolate rules and the monospace stack preserved on technical values. No external font or stylesheet is fetched.
 
 ## Logout
 

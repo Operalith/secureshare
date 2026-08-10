@@ -19,13 +19,21 @@
     timeZoneName: "short",
   };
 
+  const RECIPIENT_OPTIONS = {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+
   function format(value, options = {}) {
     if (value === null || value === undefined || String(value).trim() === "") {
       return options.emptyLabel || "Never";
     }
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return options.invalidLabel || "Invalid date";
-    const intlOptions = { ...DEFAULT_OPTIONS };
+    const intlOptions = options.preset === "recipient" ? { ...RECIPIENT_OPTIONS } : { ...DEFAULT_OPTIONS };
     if (options.timeZone) intlOptions.timeZone = options.timeZone;
     try {
       return new Intl.DateTimeFormat(options.locale, intlOptions).format(parsed);
@@ -51,6 +59,8 @@
       render(element, element.getAttribute("data-local-time"), {
         emptyLabel: element.getAttribute("data-empty-label") || undefined,
         invalidLabel: element.getAttribute("data-invalid-label") || undefined,
+        locale: element.getAttribute("data-time-locale") || undefined,
+        preset: element.getAttribute("data-time-preset") || undefined,
       });
     });
   }

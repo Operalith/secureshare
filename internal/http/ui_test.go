@@ -355,7 +355,7 @@ func TestRecipientRevealPageRendering(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/s", nil))
 	body := rec.Body.String()
-	for _, want := range []string{"Reveal secret", "unavailable-wrap", "/static/reveal.js", "This secret can only be viewed once", `<html lang="en" dir="ltr">`} {
+	for _, want := range []string{"Reveal information", "unavailable-wrap", "/static/reveal.js", "View confidential information", `recipient-alert--warning`, `<html lang="en" dir="ltr">`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("recipient page missing %q", want)
 		}
@@ -368,7 +368,7 @@ func TestPublicExperienceLocaleAccessRenderingAndSafePreviews(t *testing.T) {
 
 	english := httptest.NewRecorder()
 	app.Handler().ServeHTTP(english, httptest.NewRequest(http.MethodGet, "/s", nil))
-	for _, want := range []string{`<html lang="en" dir="ltr">`, "A secure secret has been shared with you", "The link password is incorrect. Try again.", "Secret revealed", "This link is no longer available"} {
+	for _, want := range []string{`<html lang="en" dir="ltr">`, "View confidential information", "The link password is incorrect. Try again.", "Confidential information revealed", "This link is no longer available", "recipient-alert--status", "recipient-alert--warning", "recipient-alert--unavailable"} {
 		if !strings.Contains(english.Body.String(), want) {
 			t.Fatalf("English recipient page missing %q", want)
 		}
@@ -410,9 +410,9 @@ func TestPublicExperienceLocaleAccessRenderingAndSafePreviews(t *testing.T) {
 	persian := httptest.NewRecorder()
 	app.Handler().ServeHTTP(persian, httptest.NewRequest(http.MethodGet, "/s", nil))
 	for _, want := range []string{
-		`<html lang="fa" dir="rtl">`, "یک اطلاعات محرمانه برای شما ارسال شده است",
-		"رمز لینک صحیح نیست. دوباره تلاش کنید.", "اطلاعات محرمانه نمایش داده شد",
-		"این لینک دیگر در دسترس نیست", `data-locale="fa-IR-u-ca-gregory"`,
+		`<html lang="fa" dir="rtl">`, "مشاهده اطلاعات محرمانه",
+		"رمز لینک صحیح نیست. دوباره تلاش کنید.", "نمایش اطلاعات محرمانه",
+		"این لینک دیگر در دسترس نیست", `data-locale="fa-IR-u-ca-persian"`,
 	} {
 		if !strings.Contains(persian.Body.String(), want) {
 			t.Fatalf("Persian recipient page missing %q", want)
@@ -672,6 +672,12 @@ func TestTypographyUsesLocalFontPolicyAndLTRTechnicalValues(t *testing.T) {
 		`--font-sans: -apple-system`,
 		`--font-persian:`,
 		`--font-mono: ui-monospace`,
+		`--public-info-bg:`,
+		`--public-warning-bg:`,
+		`--public-unavailable-bg:`,
+		`.recipient-alert--status`,
+		`.recipient-alert--warning`,
+		`.recipient-alert--unavailable`,
 		"direction: ltr",
 		"unicode-bidi: isolate",
 		"[dir=\"rtl\"]",

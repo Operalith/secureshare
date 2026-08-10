@@ -8,11 +8,11 @@
   const copySource = document.querySelector("#recipient-copy");
   const copy = {
     locale: copySource?.dataset.locale || "en",
-    ready: copySource?.dataset.ready || "The link is ready. Opening this page has not consumed the secret.",
+    ready: copySource?.dataset.ready || "The information remains available until you choose “Reveal information”.",
     availableUntil: copySource?.dataset.availableUntil || "Available until",
     availableUntilSuffix: copySource?.dataset.availableUntilSuffix ?? ".",
-    reveal: copySource?.dataset.reveal || "Reveal secret",
-    revealing: copySource?.dataset.revealing || "Revealing...",
+    reveal: copySource?.dataset.reveal || "Reveal information",
+    revealing: copySource?.dataset.revealing || "Revealing information...",
     wrongPassword: copySource?.dataset.wrongPassword || "The link password is incorrect. Try again.",
     unavailableTitle: copySource?.dataset.unavailableTitle || "This link is no longer available",
     unavailableMessage: copySource?.dataset.unavailableMessage || "This link has expired, was revoked, or has already been viewed.",
@@ -140,6 +140,7 @@
         if (window.SecureShareTime?.render) {
           window.SecureShareTime.render(timeElement, body.expires_at, {
             locale: copy.locale,
+            preset: "recipient",
             emptyLabel: copy.invalidDate,
             invalidLabel: copy.invalidDate,
           });

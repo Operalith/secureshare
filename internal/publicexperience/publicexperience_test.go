@@ -28,9 +28,15 @@ func TestCatalogProvidesSemanticDirectionAndCompletePersianCopy(t *testing.T) {
 	if english.Locale != LocaleEnglish || english.Direction != "ltr" || english.Text.ReadyTitle == "" {
 		t.Fatalf("English catalog = %+v", english)
 	}
+	if english.Text.ReadyTitle != "View confidential information" || english.DateLocale != "en" {
+		t.Fatalf("English recipient presentation = %+v", english)
+	}
 	persian := Catalog(LocalePersian)
-	if persian.Locale != LocalePersian || persian.Direction != "rtl" {
+	if persian.Locale != LocalePersian || persian.Direction != "rtl" || persian.DateLocale != "fa-IR-u-ca-persian" {
 		t.Fatalf("Persian catalog = %+v", persian)
+	}
+	if persian.Text.ReadyTitle != "مشاهده اطلاعات محرمانه" || persian.PreviewExpirationISO != previewExpirationISO {
+		t.Fatalf("Persian recipient presentation = %+v", persian)
 	}
 	for name, value := range map[string]string{
 		"ready title": persian.Text.ReadyTitle, "wrong password": persian.Text.WrongPassword,

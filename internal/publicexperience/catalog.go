@@ -37,34 +37,37 @@ type Translations struct {
 }
 
 type PageData struct {
-	Locale     string
-	Direction  string
-	DateLocale string
-	Text       Translations
+	Locale               string
+	Direction            string
+	DateLocale           string
+	PreviewExpirationISO string
+	Text                 Translations
 }
+
+const previewExpirationISO = "2026-08-10T13:03:00Z"
 
 var catalogs = map[string]Translations{
 	LocaleEnglish: {
 		PageTitle:            "Secure Secret",
 		TrustLabel:           "SecureShare · One-time delivery",
-		ReadyTitle:           "A secure secret has been shared with you",
-		Intro:                "This secret can only be viewed once. Choose a private setting before revealing it.",
+		ReadyTitle:           "View confidential information",
+		Intro:                "Please note that this information can only be viewed once. Before revealing it, make sure you are in a secure environment and save the information in a trusted location to avoid losing access to it.",
 		Loading:              "Preparing secure link...",
-		ReadyMessage:         "The link is ready. Opening this page has not consumed the secret.",
+		ReadyMessage:         "The information remains available until you choose “Reveal information”.",
 		AvailableUntil:       "Available until",
 		AvailableUntilSuffix: ".",
 		PasswordLabel:        "Link password",
 		Show:                 "Show",
 		Hide:                 "Hide",
-		Reveal:               "Reveal secret",
-		Revealing:            "Revealing...",
-		SecurityNote:         "Only reveal this secret in a private setting. Leaving or refreshing the page after reveal will make it unavailable here.",
+		Reveal:               "Reveal information",
+		Revealing:            "Revealing information...",
+		SecurityNote:         "Make sure you save the information. After it is revealed, leaving or refreshing this page will permanently remove your access to it.",
 		WrongPassword:        "The link password is incorrect. Try again.",
-		RevealedTitle:        "Secret revealed",
-		RevealedDescription:  "After leaving or refreshing this page, this secret cannot be viewed again.",
-		OneTimeWarning:       "Copy what you need now and keep it in an approved secure location.",
+		RevealedTitle:        "Confidential information revealed",
+		RevealedDescription:  "Copy all of the information now and store it only in a secure location you trust.",
+		OneTimeWarning:       "Once you leave or refresh this page, this information cannot be viewed again.",
 		Copy:                 "Copy",
-		CopyAll:              "Copy all",
+		CopyAll:              "Copy all information",
 		CopySuccess:          "Copied",
 		UnavailableTitle:     "This link is no longer available",
 		UnavailableMessage:   "This link has expired, was revoked, or has already been viewed.",
@@ -75,17 +78,17 @@ var catalogs = map[string]Translations{
 		Retry:                "Try again",
 		InvalidDate:          "Invalid date",
 		PreviewLabel:         "Safe preview · fake data",
-		PreviewExpiration:    "December 30, 2026 at 2:30 PM",
+		PreviewExpiration:    "August 10, 2026 at 4:33 PM",
 		PreviewUsername:      "Username",
 		PreviewAPIKey:        "API key",
 	},
 	LocalePersian: {
 		PageTitle:            "اطلاعات محرمانه",
 		TrustLabel:           "SecureShare · ارسال یک‌بارمصرف",
-		ReadyTitle:           "یک اطلاعات محرمانه برای شما ارسال شده است",
-		Intro:                "این اطلاعات فقط یک‌بار قابل مشاهده است. لطفاً پیش از نمایش، در یک محیط امن و خصوصی قرار بگیرید.",
+		ReadyTitle:           "مشاهده اطلاعات محرمانه",
+		Intro:                "توجه داشته باشید این اطلاعات فقط یک‌بار قابل نمایش است. پیش از اقدام برای مشاهده از امنیت محیط اطمینان حاصل کنید و حتما اطلاعات را برای پیشگیری از فراموشی در یک جای امن ذخیره کنید.",
 		Loading:              "در حال آماده‌سازی لینک امن…",
-		ReadyMessage:         "لینک آماده است. اطلاعات تا پیش از انتخاب «نمایش اطلاعات» مصرف نمی‌شود.",
+		ReadyMessage:         "اطلاعات فقط تا پیش از انتخاب «نمایش اطلاعات» قابل مشاهده است.",
 		AvailableUntil:       "قابل مشاهده تا",
 		AvailableUntilSuffix: "",
 		PasswordLabel:        "رمز لینک",
@@ -93,16 +96,16 @@ var catalogs = map[string]Translations{
 		Hide:                 "مخفی‌کردن",
 		Reveal:               "نمایش اطلاعات",
 		Revealing:            "در حال نمایش…",
-		SecurityNote:         "اطلاعات را فقط در محیطی امن و خصوصی نمایش دهید. پس از نمایش، با خروج یا بارگذاری مجدد صفحه دیگر به آن دسترسی ندارید.",
+		SecurityNote:         "اطلاعات را حتما ذخیره کنید. پس از نمایش، یا خروج یا بارگذاری مجدد صفحه دیگر به آن دسترسی ندارید.",
 		WrongPassword:        "رمز لینک صحیح نیست. دوباره تلاش کنید.",
-		RevealedTitle:        "اطلاعات محرمانه نمایش داده شد",
-		RevealedDescription:  "پس از خروج از این صفحه یا بارگذاری مجدد آن، امکان مشاهده دوباره این اطلاعات وجود ندارد.",
-		OneTimeWarning:       "اطلاعات موردنیاز را همین حالا کپی و فقط در محل امن مورد تأیید نگهداری کنید.",
+		RevealedTitle:        "نمایش اطلاعات محرمانه",
+		RevealedDescription:  "همه اطلاعات را همین حالا کپی و فقط در محل امن مورد تأیید خودتان حفظ و نگهداری کنید.",
+		OneTimeWarning:       "پس از خروج از این صفحه یا بارگذاری مجدد آن، امکان مشاهده دوباره این اطلاعات وجود ندارد.",
 		Copy:                 "کپی",
-		CopyAll:              "کپی همه",
+		CopyAll:              "کپی همه اطلاعات",
 		CopySuccess:          "کپی شد",
 		UnavailableTitle:     "این لینک دیگر در دسترس نیست",
-		UnavailableMessage:   "این لینک منقضی یا لغو شده، یا قبلاً مشاهده شده است.",
+		UnavailableMessage:   "این لینک منقضی شده، لغو شده یا قبلاً مشاهده شده است.",
 		SessionLostTitle:     "برای ادامه، لینک اصلی را دوباره باز کنید",
 		SessionLostMessage:   "برای حفظ امنیت، این لینک در مرورگر ذخیره نمی‌شود. لینک اصلی ارسال‌شده را دوباره باز کنید.",
 		NetworkTitle:         "ارتباط با SecureShare برقرار نشد",
@@ -110,7 +113,7 @@ var catalogs = map[string]Translations{
 		Retry:                "تلاش دوباره",
 		InvalidDate:          "تاریخ نامعتبر",
 		PreviewLabel:         "پیش‌نمایش امن · اطلاعات آزمایشی",
-		PreviewExpiration:    "۳۰ دسامبر ۲۰۲۶، ساعت ۱۴:۳۰",
+		PreviewExpiration:    "۱۹ مرداد ۱۴۰۵، ساعت ۱۶:۳۳",
 		PreviewUsername:      "نام کاربری",
 		PreviewAPIKey:        "کلید API",
 	},
@@ -122,7 +125,7 @@ func Catalog(locale string) PageData {
 	dateLocale := "en"
 	if locale == LocalePersian {
 		direction = "rtl"
-		dateLocale = "fa-IR-u-ca-gregory"
+		dateLocale = "fa-IR-u-ca-persian"
 	}
-	return PageData{Locale: locale, Direction: direction, DateLocale: dateLocale, Text: catalogs[locale]}
+	return PageData{Locale: locale, Direction: direction, DateLocale: dateLocale, PreviewExpirationISO: previewExpirationISO, Text: catalogs[locale]}
 }

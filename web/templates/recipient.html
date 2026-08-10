@@ -31,8 +31,8 @@
       </section>
 
       <section id="ready-state" class="recipient-state-panel{{ if not (and .Preview (eq .PreviewState "ready")) }} hidden{{ end }}" data-recipient-state-panel="ready">
-        <div id="prepare-state" class="recipient-state one-time-callout" role="status">{{ .Text.ReadyMessage }}</div>
-        <p id="expires-state" class="recipient-expiration muted">{{ if .Preview }}{{ .Text.AvailableUntil }} <span>{{ .Text.PreviewExpiration }}</span>{{ .Text.AvailableUntilSuffix }}{{ end }}</p>
+        <div class="recipient-alert recipient-alert--status" role="status"><span class="recipient-alert__icon" aria-hidden="true">✓</span><span id="prepare-state">{{ .Text.ReadyMessage }}</span></div>
+        <p id="expires-state" class="recipient-expiration muted">{{ if .Preview }}{{ .Text.AvailableUntil }} <time datetime="{{ .PreviewExpirationISO }}" data-local-time="{{ .PreviewExpirationISO }}" data-time-locale="{{ .DateLocale }}" data-time-preset="recipient" data-invalid-label="{{ .Text.InvalidDate }}">{{ .Text.PreviewExpiration }}</time>{{ .Text.AvailableUntilSuffix }}{{ end }}</p>
         <label id="password-wrap" class="{{ if not .Preview }}hidden{{ end }}" for="link-password">
           {{ .Text.PasswordLabel }}
           <span class="input-with-action">
@@ -42,15 +42,15 @@
           <span id="password-error" class="field-error hidden" role="alert" aria-live="assertive"></span>
         </label>
         <button type="button" id="reveal-button" data-loading-text="{{ .Text.Revealing }}"{{ if .Preview }} disabled{{ end }}>{{ .Text.Reveal }}</button>
-        <p class="recipient-security-note"><span aria-hidden="true">⌁</span><span>{{ .Text.SecurityNote }}</span></p>
+        <p class="recipient-alert recipient-alert--warning"><span class="recipient-alert__icon" aria-hidden="true">!</span><span>{{ .Text.SecurityNote }}</span></p>
       </section>
 
       <section id="revealed-secret-wrap" class="recipient-state-panel revealed{{ if not (and .Preview (eq .PreviewState "revealed")) }} hidden{{ end }}" data-recipient-state-panel="revealed" aria-live="polite">
-        <div class="success-banner">
+        <div class="recipient-state-heading">
           <span class="success-icon" aria-hidden="true">✓</span>
           <div><h2>{{ .Text.RevealedTitle }}</h2><p>{{ .Text.RevealedDescription }}</p></div>
         </div>
-        <p class="recipient-security-note warning-note"><span aria-hidden="true">!</span><span>{{ .Text.OneTimeWarning }}</span></p>
+        <p class="recipient-alert recipient-alert--warning"><span class="recipient-alert__icon" aria-hidden="true">!</span><span>{{ .Text.OneTimeWarning }}</span></p>
         {{ if .Preview }}
         <div class="revealed-fields" data-preview-fields>
           <div class="revealed-field">
@@ -74,9 +74,9 @@
       </section>
 
       <section id="unavailable-wrap" class="recipient-state-panel unavailable{{ if not (and .Preview (eq .PreviewState "unavailable")) }} hidden{{ end }}" data-recipient-state-panel="unavailable" aria-live="polite">
-        <div class="recipient-status-icon" aria-hidden="true">×</div>
+        <div class="recipient-status-icon recipient-status-icon--unavailable" aria-hidden="true">×</div>
         <h2 id="unavailable-title">{{ .Text.UnavailableTitle }}</h2>
-        <p id="unavailable-message">{{ .Text.UnavailableMessage }}</p>
+        <p id="unavailable-message" class="recipient-alert recipient-alert--unavailable">{{ .Text.UnavailableMessage }}</p>
       </section>
 
       <section id="network-error-wrap" class="recipient-state-panel unavailable hidden" data-recipient-state-panel="network_error" aria-live="polite">

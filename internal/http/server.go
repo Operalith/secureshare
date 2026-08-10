@@ -516,13 +516,14 @@ func (s *Server) handlePublicExperiencePreview(w http.ResponseWriter, r *http.Re
 	}
 	data := publicexperience.Catalog(locale)
 	s.render(w, "recipient.html", map[string]any{
-		"Title":        data.Text.PageTitle,
-		"Locale":       data.Locale,
-		"Direction":    data.Direction,
-		"DateLocale":   data.DateLocale,
-		"Text":         data.Text,
-		"Preview":      true,
-		"PreviewState": state,
+		"Title":                data.Text.PageTitle,
+		"Locale":               data.Locale,
+		"Direction":            data.Direction,
+		"DateLocale":           data.DateLocale,
+		"PreviewExpirationISO": data.PreviewExpirationISO,
+		"Text":                 data.Text,
+		"Preview":              true,
+		"PreviewState":         state,
 	})
 }
 
@@ -577,11 +578,12 @@ func (s *Server) handleRecipientPage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := publicexperience.Catalog(settings.PublicLocale)
 	s.render(w, "recipient.html", map[string]any{
-		"Title":      data.Text.PageTitle,
-		"Locale":     data.Locale,
-		"Direction":  data.Direction,
-		"DateLocale": data.DateLocale,
-		"Text":       data.Text,
+		"Title":                data.Text.PageTitle,
+		"Locale":               data.Locale,
+		"Direction":            data.Direction,
+		"DateLocale":           data.DateLocale,
+		"PreviewExpirationISO": data.PreviewExpirationISO,
+		"Text":                 data.Text,
 	})
 }
 

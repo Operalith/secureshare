@@ -26,6 +26,21 @@
   --success: #087443;
   --success-soft: #ddf7e9;
   --neutral-soft: #e8eef3;
+  --public-info-bg: #edf8f4;
+  --public-info-border: #b8ded4;
+  --public-info-icon-bg: #d5eee7;
+  --public-info-icon: #116f61;
+  --public-info-text: #17483e;
+  --public-warning-bg: #fff4f2;
+  --public-warning-border: #ebc8c3;
+  --public-warning-icon-bg: #f7dfdb;
+  --public-warning-icon: #9f453d;
+  --public-warning-text: #612d28;
+  --public-unavailable-bg: #fff8f7;
+  --public-unavailable-border: #e7c4bf;
+  --public-unavailable-icon-bg: #f5ddda;
+  --public-unavailable-icon: #963f38;
+  --public-unavailable-text: #71312b;
   --shadow: 0 24px 60px rgba(18, 24, 23, 0.08);
   --radius: 8px;
   --sidebar-width: 252px;
@@ -69,6 +84,21 @@
   --success: #73d99d;
   --success-soft: #173925;
   --neutral-soft: #24313b;
+  --public-info-bg: #17332e;
+  --public-info-border: #315b52;
+  --public-info-icon-bg: #21463f;
+  --public-info-icon: #8bd8c7;
+  --public-info-text: #d8f2ec;
+  --public-warning-bg: #2c1d1c;
+  --public-warning-border: #5b3834;
+  --public-warning-icon-bg: #452a27;
+  --public-warning-icon: #e4a098;
+  --public-warning-text: #f0d6d2;
+  --public-unavailable-bg: #2a1d1c;
+  --public-unavailable-border: #593833;
+  --public-unavailable-icon-bg: #442a27;
+  --public-unavailable-icon: #e29b93;
+  --public-unavailable-text: #efd4d0;
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
 }
 
@@ -93,6 +123,21 @@
     --success: #73d99d;
     --success-soft: #173925;
     --neutral-soft: #24313b;
+    --public-info-bg: #17332e;
+    --public-info-border: #315b52;
+    --public-info-icon-bg: #21463f;
+    --public-info-icon: #8bd8c7;
+    --public-info-text: #d8f2ec;
+    --public-warning-bg: #2c1d1c;
+    --public-warning-border: #5b3834;
+    --public-warning-icon-bg: #452a27;
+    --public-warning-icon: #e4a098;
+    --public-warning-text: #f0d6d2;
+    --public-unavailable-bg: #2a1d1c;
+    --public-unavailable-border: #593833;
+    --public-unavailable-icon-bg: #442a27;
+    --public-unavailable-icon: #e29b93;
+    --public-unavailable-text: #efd4d0;
     --shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
   }
 }
@@ -1258,6 +1303,10 @@ th {
   margin: 0;
 }
 
+.recipient-heading p {
+  max-width: 60ch;
+}
+
 body[data-recipient-state="revealed"] .recipient-heading,
 body[data-recipient-state="unavailable"] .recipient-heading,
 body[data-recipient-state="network_error"] .recipient-heading {
@@ -1306,12 +1355,6 @@ body[data-recipient-state="network_error"] .recipient-heading {
   font-weight: 760;
 }
 
-.one-time-callout {
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
-  background: var(--accent-soft);
-  color: var(--text);
-}
-
 .recipient-expiration {
   margin: 0;
 }
@@ -1321,33 +1364,57 @@ body[data-recipient-state="network_error"] .recipient-heading {
   unicode-bidi: isolate;
 }
 
-.recipient-security-note {
+.recipient-alert {
   display: flex;
   gap: 10px;
   align-items: flex-start;
   margin: 0;
   padding: 12px 14px;
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--surface-strong);
-  color: var(--muted);
   font-size: var(--font-size-sm);
+  line-height: 1.65;
 }
 
-.recipient-security-note > :first-child {
+.recipient-alert__icon {
   flex: 0 0 24px;
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
   font-weight: var(--weight-bold);
 }
 
-.warning-note > :first-child {
-  background: var(--warning-soft);
-  color: var(--warning);
+.recipient-alert--status {
+  border-color: var(--public-info-border);
+  background: var(--public-info-bg);
+  color: var(--public-info-text);
+  font-weight: 600;
+}
+
+.recipient-alert--status .recipient-alert__icon {
+  background: var(--public-info-icon-bg);
+  color: var(--public-info-icon);
+}
+
+.recipient-alert--warning {
+  border-color: var(--public-warning-border);
+  background: var(--public-warning-bg);
+  color: var(--public-warning-text);
+}
+
+.recipient-alert--warning .recipient-alert__icon {
+  background: var(--public-warning-icon-bg);
+  color: var(--public-warning-icon);
+}
+
+.recipient-alert--unavailable {
+  justify-content: center;
+  width: 100%;
+  border-color: var(--public-unavailable-border);
+  background: var(--public-unavailable-bg);
+  color: var(--public-unavailable-text);
 }
 
 .recipient-card button,
@@ -1369,21 +1436,19 @@ body[data-recipient-state="network_error"] .recipient-heading {
   gap: 12px;
 }
 
-.success-banner {
+.recipient-state-heading {
   display: flex;
   gap: 12px;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--success) 30%, var(--line));
-  border-radius: 12px;
-  background: var(--success-soft);
+  align-items: flex-start;
+  padding: 2px 0 4px;
 }
 
-.success-banner h2,
-.success-banner p {
+.recipient-state-heading h2,
+.recipient-state-heading p {
   margin-bottom: 4px;
 }
 
-.success-banner h2,
+.recipient-state-heading h2,
 .unavailable h2 {
   font-size: clamp(1.4rem, 1.9vw, 1.75rem);
   font-weight: 700;
@@ -1450,6 +1515,11 @@ pre {
   font-weight: var(--weight-bold);
 }
 
+.recipient-status-icon--unavailable {
+  background: var(--public-unavailable-icon-bg);
+  color: var(--public-unavailable-icon);
+}
+
 html[lang="fa"] .recipient-title {
   max-width: 24ch;
   font-size: clamp(1.75rem, 2.4vw, 2.1rem);
@@ -1470,10 +1540,25 @@ html[lang="fa"] .recipient-card .button-link {
   font-weight: 600;
 }
 
+html[lang="fa"] .recipient-heading p,
+html[lang="fa"] .recipient-alert,
+html[lang="fa"] .recipient-state-heading p {
+  line-height: 1.85;
+}
+
+.revealed > .actions,
+.revealed > .actions #copy-secret {
+  width: 100%;
+}
+
 [dir="rtl"] .recipient-brand,
-[dir="rtl"] .success-banner,
-[dir="rtl"] .recipient-security-note {
+[dir="rtl"] .recipient-state-heading,
+[dir="rtl"] .recipient-alert {
   text-align: right;
+}
+
+[dir="rtl"] .recipient-alert--unavailable {
+  text-align: center;
 }
 
 [dir="rtl"] .recipient-card .actions,
@@ -1815,12 +1900,16 @@ html[lang="fa"] .recipient-card .button-link {
 
   .auth-card,
   .panel,
-  .success-panel,
-  .recipient-card {
+  .success-panel {
     padding: 18px;
   }
 
-  .success-banner h2,
+  .recipient-card {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .recipient-state-heading h2,
   .unavailable h2 {
     font-size: 1.4rem;
   }

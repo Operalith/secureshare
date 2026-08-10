@@ -207,7 +207,7 @@ Errors use:
 
 Treat management-endpoint `401` as missing or invalid credentials. On recipient consume only, `401 LINK_PASSWORD_INVALID` is retryable while the page still holds the fragment token in memory. Treat `410 SECRET_UNAVAILABLE` as terminal for recipient reveal attempts. Treat `422 EMAIL_DELIVERY_NOT_CONFIGURED` as an administrator action item, not a retriable create failure.
 
-Public recipient pages use the administrator-selected global locale, `en` or `fa`. Do not assume direction from credential content: Persian copy is RTL, while field values such as usernames, API keys, code, and URLs are explicitly LTR-isolated. Recipient expiration dates use the selected locale with the Gregorian calendar.
+Public recipient pages use the administrator-selected global locale, `en` or `fa`. Do not assume direction from credential content: Persian copy is RTL, while field values such as usernames, API keys, code, and URLs are explicitly LTR-isolated. Recipient expiration timestamps remain UTC ISO-8601 in storage and APIs. The browser presents English recipient dates with the Gregorian calendar and Persian recipient dates with the Jalali calendar in the browser's local timezone.
 
 ## 16. Rate Limits
 
