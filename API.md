@@ -10,6 +10,20 @@ All responses use JSON for API endpoints.
 
 OpenAPI documentation is available at `/docs`, and the raw OpenAPI 3.1 document is available at `/openapi.yaml`. Both are authenticated by default unless `OPENAPI_PUBLIC=true`.
 
+## Build Metadata
+
+`GET /version` is public and returns only release and build identifiers:
+
+```bash
+curl -sS http://localhost:8080/version
+```
+
+```json
+{"version":"0.1.0","commit":"unknown","build_date":"unknown"}
+```
+
+The response deliberately excludes host, dependency, configuration, and credential details.
+
 ## Authentication
 
 Machine integrations should authenticate with scoped API clients over HTTP Basic auth:
@@ -528,6 +542,7 @@ The management page is `/admin/settings/public-experience`; safe fake-data previ
 ## Health and Metrics
 
 ```bash
+curl -sS http://localhost:8080/version
 curl -sS http://localhost:8080/health/live
 curl -sS http://localhost:8080/health/ready
 curl -sS http://localhost:8080/metrics

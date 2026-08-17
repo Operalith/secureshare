@@ -1,5 +1,25 @@
 # Security
 
+## Supported Versions
+
+| Version | Supported |
+| --- | --- |
+| 0.1.x | Yes |
+
+Security fixes are provided for the latest published release. Upgrade to the newest patch release before reporting an issue that may already be resolved.
+
+## Reporting a Vulnerability
+
+Do not disclose suspected vulnerabilities in a public GitHub issue, pull request, discussion, screenshot, or log excerpt.
+
+Use [GitHub Private Vulnerability Reporting](https://github.com/Operalith/secureshare/security/advisories/new). Include the affected version, deployment model, impact, sanitized reproduction steps, and any suggested mitigation. Never include real secret payloads, raw one-time links, production credentials, Vault tokens, SMTP passwords, or session cookies.
+
+Maintainers will acknowledge a complete report, investigate privately, coordinate remediation and release timing, and credit reporters when requested and appropriate.
+
+## Security Architecture Summary
+
+SecureShare stores Vault ciphertext and HMAC token lookups rather than plaintext payloads or raw tokens. Recipient links use fragments, reveal requires an explicit POST, and successful consumption is atomic. The backend briefly handles plaintext during Vault encryption and reveal, so SecureShare is not zero-knowledge or end-to-end encrypted.
+
 ## Threat Model
 
 SecureShare protects sensitive values during internal handoff to recipients. It assumes the app, PostgreSQL, and Vault run in a trusted private environment behind an authenticated internal boundary. The recipient reveal endpoint is intentionally unauthenticated because possession of the link token, and optional password, authorizes a one-time reveal.
@@ -134,7 +154,7 @@ The recipient page reads the raw token from `/s#<token>`, immediately removes th
 
 Link protection can be set, replaced, or removed only while a link is active, unconsumed, unexpired, and not revoked. Admins and scoped API clients may manage any link; developers may manage links they created; viewers are denied. Replacement writes a new Argon2id hash and resets failed attempts, removal clears the hash and counter, and neither operation changes or reconstructs the one-time URL. The current password is non-recoverable and is never returned by metadata, API, or HTML.
 
-The public-experience preview is admin-only, uses fixed fake data, and does not create a delivery or token. Both supported locales use bundled application assets and the existing strict CSP; Persian selects only a system font fallback list and makes no external font request. Technical credential values are explicitly LTR-isolated inside the RTL document.
+The public-experience preview is admin-only, uses fixed fake data, and does not create a delivery or token. Both supported locales use bundled application assets and the existing strict CSP; Persian uses the bundled Vazirmatn font and makes no external font request. Technical credential values are explicitly LTR-isolated inside the RTL document.
 
 ## Concurrency Handling
 
@@ -224,4 +244,4 @@ Vault Transit key rotation should use Vault-native rotation. Existing ciphertext
 - Local Compose uses Vault dev mode.
 - Machine auth still supports the deprecated global admin API key while migrations to API clients complete.
 - OIDC, LDAP, MFA, Redis-backed rate limiting, SMS OTP, and multi-tenant isolation are not implemented.
-- Email is sent synchronously in v1; there is no queue, Redis worker, or historical resend without the raw token.
+- Email is sent synchronously in v0.1.0; there is no queue, Redis worker, or historical resend without the raw token.

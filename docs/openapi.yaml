@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: SecureShare API
-  version: 1.0.0
-  summary: One-time secret delivery API for scoped internal integrations.
+  version: 0.1.0
+  summary: Self-hosted one-time secret delivery API.
   description: >
     SecureShare creates encrypted one-time delivery links for structured credentials,
     text, JSON, and configuration snippets. Secret values are write-only on create
@@ -11,6 +11,7 @@ servers:
   - url: http://localhost:8080
     description: Local development
 tags:
+  - name: Metadata
   - name: Authentication
   - name: Current User
   - name: Secret Links
@@ -24,6 +25,19 @@ tags:
 security:
   - ApiClientAuth: []
 paths:
+  /version:
+    get:
+      tags: [Metadata]
+      summary: Get application version
+      description: Returns public release and build metadata without host or dependency details.
+      security: []
+      responses:
+        '200':
+          description: Application release and build metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionInfo'
   /api/v1/auth/login:
     post:
       tags: [Authentication]
@@ -2046,6 +2060,21 @@ components:
         status:
           type: string
           example: ready
+    VersionInfo:
+      type: object
+      required: [version, commit, build_date]
+      properties:
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          description: Source revision injected at build time, or `unknown` when unavailable.
+          example: abc1234
+        build_date:
+          type: string
+          description: UTC build timestamp injected at build time, or `unknown` when unavailable.
+          example: '2026-08-17T12:00:00Z'
   responses:
     OK:
       description: Operation succeeded.

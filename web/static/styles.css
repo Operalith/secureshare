@@ -1524,6 +1524,16 @@ html[lang="fa"] .recipient-title {
   letter-spacing: 0;
 }
 
+@media (min-width: 1280px) {
+  html[lang="fa"] .recipient-card {
+    width: min(1180px, 100%);
+  }
+
+  html[lang="fa"] #recipient-intro {
+    white-space: nowrap;
+  }
+}
+
 html[lang="fa"] .recipient-card label,
 html[lang="fa"] .recipient-state,
 html[lang="fa"] .recipient-card .eyebrow {

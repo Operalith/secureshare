@@ -56,6 +56,9 @@ services:
   app:
     build:
       context: .
+      args:
+        BUILD_COMMIT: ${SECURESHARE_BUILD_COMMIT:-unknown}
+        BUILD_DATE: ${SECURESHARE_BUILD_DATE:-unknown}
     environment:
       APP_ENV: ${APP_ENV:-development}
       APP_ADDR: ${APP_ADDR:-:8080}

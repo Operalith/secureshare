@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-and-security:
+    name: Quality and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run Go tests
+        run: go test ./...
+      - name: Run Go vet
+        run: go vet ./...
+      - name: Run project lint target
+        run: make lint
+      - name: Validate OpenAPI
+        run: make openapi-validate
+      - name: Run isolated security tests
+        run: make security-test
+
+  browser:
+    name: Browser regression
+    if: github.event_name == 'pull_request'
+    needs: quality-and-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Run isolated UI tests
+        run: make ui-e2e

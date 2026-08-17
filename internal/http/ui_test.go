@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"secureshare/internal/auth"
+	"secureshare/internal/buildinfo"
 	"secureshare/internal/config"
 	"secureshare/internal/delivery"
 	secureemail "secureshare/internal/email"
@@ -33,6 +34,27 @@ func TestLoginPageRendering(t *testing.T) {
 	for _, want := range []string{"SecureShare", "Admin sign in", "Username or email", "data-login-form", "Show"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("login page missing %q", want)
+		}
+	}
+}
+
+func TestVersionEndpointExposesOnlyBuildMetadata(t *testing.T) {
+	app := testServer()
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/version", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("version status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got buildinfo.Info
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != buildinfo.Current().Version || got.Commit == "" || got.BuildDate == "" {
+		t.Fatalf("version payload = %+v", got)
+	}
+	for _, forbidden := range []string{"hostname", "database", "vault", "address"} {
+		if strings.Contains(strings.ToLower(rec.Body.String()), forbidden) {
+			t.Fatalf("version payload contains forbidden field %q: %s", forbidden, rec.Body.String())
 		}
 	}
 }

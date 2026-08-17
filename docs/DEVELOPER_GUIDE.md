@@ -30,6 +30,8 @@ The bundled examples read `SECURESHARE_BASE_URL`, `SECURESHARE_CLIENT_ID`, and `
 
 Use HTTPS in production. The legacy `Authorization: Bearer <admin-api-key>` mode is deprecated and can be disabled with `LEGACY_ADMIN_API_KEY_ENABLED=false`.
 
+Public build metadata is available without authentication at `GET /version`. It returns only `version`, `commit`, and `build_date`; use it to identify the deployed release without exposing host or dependency details.
+
 ## 3. Creating a One-Time Secret Link
 
 Send `POST /api/v1/secret-links` with `Content-Type: application/json`. The response contains a one-time recipient URL. Print or store only the URL needed for handoff; do not log the request body.

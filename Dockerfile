@@ -1,10 +1,15 @@
 FROM golang:1.23-alpine AS build
 
+ARG BUILD_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
 WORKDIR /src
 RUN apk add --no-cache ca-certificates git
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -ldflags="-s -w" -o /out/secureshare ./cmd/secureshare
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath \
+    -ldflags="-s -w -X secureshare/internal/buildinfo.Commit=${BUILD_COMMIT} -X secureshare/internal/buildinfo.BuildDate=${BUILD_DATE}" \
+    -o /out/secureshare ./cmd/secureshare
 
 FROM alpine:3.20
 

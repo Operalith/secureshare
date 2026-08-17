@@ -1,224 +1,288 @@
 # SecureShare
 
-SecureShare is a production-oriented MVP for secure one-time secret delivery. Internal developers or services create encrypted one-time links for credentials, API keys, access tokens, and similar sensitive values. Recipients open the link, explicitly click Reveal Secret, and can view the payload exactly once.
+SecureShare is a self-hosted one-time secret delivery service for securely sharing passwords, API keys, credentials, and other sensitive information without leaving permanent plaintext copies behind.
 
-The local stack runs with Go, PostgreSQL, and HashiCorp Vault Transit through Docker Compose.
+It combines a server-rendered Go application, PostgreSQL metadata, and HashiCorp Vault Transit encryption with explicit one-time reveal, optional link passwords, scoped API clients, and English/Persian recipient pages.
+
+## Screenshots
+
+| Admin dashboard | Create a secret |
+| --- | --- |
+| ![SecureShare dashboard](docs/assets/screenshots/dashboard.png) | ![Create a one-time secret](docs/assets/screenshots/create-secret.png) |
+
+| Persian recipient | Revealed information |
+| --- | --- |
+| ![Persian one-time recipient page](docs/assets/screenshots/recipient-ready-fa.png) | ![Revealed one-time information](docs/assets/screenshots/recipient-revealed-en.png) |
+
+All screenshots use isolated fake fixtures. They contain no usable credentials or one-time links.
+
+## Why SecureShare?
+
+Chat, tickets, email, and shared documents often retain credentials long after a handoff is complete. SecureShare provides a bounded delivery flow instead:
+
+1. An administrator, developer, or API client creates an encrypted delivery.
+2. The recipient receives a fragment-based link and optionally a password through a separate channel.
+3. Opening the page does not consume the information.
+4. The recipient explicitly chooses **Reveal information**.
+5. A successful reveal atomically consumes the delivery and removes its ciphertext from active storage.
+
+## Features
+
+- One-time links with explicit reveal and atomic consumption
+- Vault Transit encryption; plaintext payloads are not stored in PostgreSQL
+- Fragment-only raw tokens with HMAC lookup; raw tokens are not stored
+- Optional Argon2id link passwords and failed-attempt limits
+- Structured credentials, text, JSON, and configuration payloads
+- Scoped API clients with one-time-visible client secrets
+- Optional SMTP delivery with safe customizable templates
+- OpenAPI 3.1 and locally served Swagger UI
+- English and Persian recipient experiences, including Jalali dates in Persian
+- Bundled Vazirmatn font with RTL layout and LTR-isolated technical values
+- PostgreSQL-backed users, roles, sessions, and theme preferences
+- Audit events, Prometheus metrics, readiness checks, and public version metadata
+- Responsive server-rendered UI with light and dark themes
+- Docker Compose development and documented production deployment
+
+## Security Model
+
+SecureShare is designed to minimize retained secret material:
+
+- The backend sends plaintext to Vault Transit for encryption and briefly handles plaintext during reveal. SecureShare is therefore **not** zero-knowledge or end-to-end encrypted.
+- PostgreSQL stores metadata, an HMAC token lookup value, and Vault ciphertext—not plaintext payloads or raw tokens.
+- The raw token is placed after `#` in the recipient URL. Browsers do not send URL fragments in ordinary HTTP requests.
+- Recipient JavaScript removes the fragment immediately and keeps the token only in page memory.
+- A `GET` request never consumes a delivery. Reveal requires an explicit `POST`.
+- PostgreSQL atomically moves one matching active delivery through a short consuming lease. Concurrent reveal attempts cannot both succeed.
+- A successful consume blanks the stored ciphertext before returning plaintext once.
+- Recipient pages and sensitive API responses use `no-store`, strict CSP, no external scripts, and no analytics.
+- Application logs exclude request/response bodies, Authorization headers, raw links, tokens, passwords, ciphertext, and secret payloads.
+
+Read [SECURITY.md](SECURITY.md) and the [threat model](docs/THREAT_MODEL.md) before operating SecureShare in production.
 
 ## Quick Start
 
+Requirements: Docker with Compose v2 and Git.
+
 ```bash
+git clone https://github.com/Operalith/secureshare.git
+cd secureshare
 cp .env.example .env
 docker compose up -d --build
 docker compose ps
-make smoke
+curl -fsS http://localhost:8080/health/ready
 ```
 
-The app is available at:
+Open [http://localhost:8080](http://localhost:8080).
 
-```text
-http://localhost:8080
-```
-
-Default local UI administrator:
+Development-only bootstrap login:
 
 ```text
 username: admin
 password: change-me-now
 ```
 
-Change the bootstrap password before any non-local use. The bootstrap user is created only when the `users` table is empty.
+These defaults are intentionally rejected by production validation. Change them before any non-local deployment. The bootstrap administrator is created only when the users table is empty.
 
-Default local legacy admin API key for machine requests:
+Local Compose also includes a deprecated development-only global API key (`change-me`). New integrations should create a scoped API client under `/admin/api-clients`.
 
-```text
-change-me
-```
-
-The legacy global key is deprecated for new integrations. Create scoped clients in `/admin/api-clients` and authenticate API calls with:
-
-```bash
-curl -u "$CLIENT_ID:$CLIENT_SECRET" ...
-```
-
-The Compose file also supplies development defaults, so `docker compose up -d --build` works before `.env` exists. Copy `.env.example` when you want to edit local settings.
-
-## What It Does
-
-- Creates one-time secret links with optional title, description, recipient reference, password protection, and expiration.
-- Supports flexible encrypted payloads: structured fields, API keys, username/password combinations, text, JSON, and configuration snippets.
-- Provides a responsive admin UI with dashboard, creation flow, secret metadata, secret listing, user management, API client management, system status, help, and light/dark mode.
-- Provides safe admin APIs for dashboard statistics, paginated metadata listing, idempotent revoke, and manual cleanup.
-- Supports scoped API clients with one-time client secret display, HMAC-hashed storage, expiration, disable, revoke, and rotation.
-- Supports optional administrator-managed SMTP settings, encrypted SMTP password storage, safe email templates, and explicit one-time-link delivery by email.
-- Serves local Swagger UI at `/docs` and raw OpenAPI 3.1 at `/openapi.yaml`.
-- Uses at least 256 bits of random token entropy.
-- Places the raw token in the URL fragment, for example `http://localhost:8080/s#token`, so browsers do not send it automatically in normal page requests.
-- Stores only `HMAC-SHA256(token_pepper, raw_token)` in PostgreSQL.
-- Encrypts secret payloads with Vault Transit before storage.
-- Atomically transitions records through `active`, `consuming`, `consumed`, `expired`, and `revoked`.
-- Records safe audit events for create, consume, revoke, expiration, password failure, and login outcomes.
-- Returns a generic `410 Gone` for invalid, expired, revoked, consumed, locked, or unknown tokens.
-
-## Architecture
+## How It Works
 
 ```mermaid
 flowchart LR
-  A["Admin user or service"] --> B["Go HTTP app"]
-  B --> C["PostgreSQL metadata and ciphertext"]
-  B --> D["Vault Transit secureshare key"]
-  E["Recipient browser"] --> B
-  B --> F["Prometheus metrics"]
-  B --> G["Optional SMTP server"]
+  A["Admin user or API client"] --> B["SecureShare Go service"]
+  B --> C["PostgreSQL metadata, HMAC and ciphertext"]
+  B --> D["HashiCorp Vault Transit"]
+  B --> E["Optional SMTP server"]
+  F["Recipient browser"] -->|"explicit reveal"| B
+  B --> G["Audit events and Prometheus metrics"]
 ```
 
-The Go app renders the admin and recipient pages directly. There is no React, Node.js, external font, CDN, analytics script, or frontend build pipeline.
+The Go service renders both the authenticated administration UI and public recipient pages. There is no JavaScript framework, CDN, external font service, or frontend build pipeline.
 
-Email delivery is optional. Administrators configure SMTP at `/admin/settings/email`; the SMTP password is encrypted with Vault Transit and is never returned by API or HTML. Create-secret requests send email only when `delivery.email.send=true` or the compatibility alias `send_email=true` is explicitly provided. API clients also need the `email:send` scope.
+## Creating a Secret
 
-## API Clients and Delivered Credential Fields
+From the UI:
 
-A SecureShare API client is a scoped machine identity used to authenticate an application to the SecureShare API. Its `client_id` and one-time-visible `client_secret` belong to SecureShare authentication; only the client-secret HMAC is stored.
+1. Sign in and open **Create secret**.
+2. Choose structured fields, text, or JSON.
+3. Set expiration and optional link-password protection.
+4. Choose **Generate link only** or **Send link by email**.
+5. Deliver the link through an approved channel. Deliver a link password separately.
 
-Structured secret fields named `client_id` or `client_secret` are ordinary encrypted credential values being delivered to a recipient, such as OAuth credentials for another service. Creating or consuming a secret with those field names creates only a secret delivery. It does not create, update, rotate, overwrite, or link a SecureShare API client.
+The administration UI never reconstructs a delivery URL later because raw tokens are not persisted.
 
-## One-Time Consumption
-
-Consume is concurrency-safe:
-
-1. The backend derives the token HMAC.
-2. PostgreSQL atomically transitions one matching active row to `consuming` with a short lease.
-3. Password verification happens before Vault decrypt.
-4. Vault decrypts the ciphertext.
-5. PostgreSQL transitions the same leased row to `consumed` and blanks `encrypted_payload`.
-6. The plaintext is returned once.
-
-If Vault decrypt fails, the app restores the row to `active` while the same lease still owns it.
-
-An incorrect link password is checked before the consume lease. Attempts below the configured limit return `401 LINK_PASSWORD_INVALID`, leave the link active, and can be retried in the same page without refresh. The locking attempt and every later request return the same generic unavailable response used for expired, revoked, consumed, and unknown links. Authorized admins and the creating developer can set, replace, or remove protection on an active link; the Argon2id password hash is one-way, the current password is never displayed, and the one-time URL does not change.
-
-The recipient browser removes `#<token>` from the address bar immediately and keeps the raw token only in that page's memory. A refresh of the stripped `/s` URL cannot reveal the secret; reopen the original link. SecureShare intentionally does not persist raw tokens in cookies, Web Storage, IndexedDB, service workers, or another browser cache.
-
-## Vault Encryption
-
-Local Compose runs Vault dev mode and an idempotent `vault-bootstrap` container. The bootstrap enables the Transit engine and creates the `secureshare` key.
-
-Production must use a persistent initialized and unsealed Vault cluster. Do not use dev mode in production.
-
-## API Example
+With a scoped API client:
 
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/secret-links \
   -u "$CLIENT_ID:$CLIENT_SECRET" \
   -H 'Content-Type: application/json' \
   --data '{
-    "title": "Merchant production credentials",
-    "recipient_reference": "merchant-1001",
-    "secret": {"username":"merchant-1001","password":"temporary-password"},
+    "title": "Example service credentials",
+    "recipient_reference": "example-user",
+    "payload": {
+      "type": "structured",
+      "fields": [
+        {"label":"Username","value":"example-user","sensitive":false},
+        {"label":"Password","value":"example-password","sensitive":true}
+      ]
+    },
     "expires_in_seconds": 86400,
-    "password": null,
     "max_failed_attempts": 5
   }'
 ```
 
-Open the returned `url` in a browser. The recipient page strips the fragment from the address bar before POSTing the token.
+## API and Swagger
 
-## Developer Documentation
+- Swagger UI: `/docs`
+- OpenAPI document: `/openapi.yaml`
+- Version metadata: `/version`
+- Liveness: `/health/live`
+- Readiness: `/health/ready`
 
-- Swagger UI: `http://localhost:8080/docs`
-- Raw OpenAPI: `http://localhost:8080/openapi.yaml`
-- Developer guide: `docs/DEVELOPER_GUIDE.md`
-- UI architecture: `docs/UI_ARCHITECTURE.md`
-- UI QA checklist: `docs/UI_QA_CHECKLIST.md`
-- Examples: `examples/curl/`, `examples/go/`, `examples/python/`, `examples/javascript/`
-- Postman collection: `docs/postman/`
-
-Swagger UI and the OpenAPI spec are authenticated by default. Set `OPENAPI_PUBLIC=true` only when the deployment intentionally exposes the spec.
-
-## UI Usage
-
-1. Visit `http://localhost:8080/login`.
-2. Enter the bootstrap username and password.
-3. Optionally configure SMTP at `/admin/settings/email`.
-4. Create a secret at `/admin/secrets/new`.
-5. Choose Generate link only or Send link by email.
-6. Copy the generated one-time URL when manual delivery is needed.
-7. Optionally revoke the link before it is viewed.
-
-The authenticated theme selector saves `system`, `light`, or `dark` to the user's PostgreSQL-backed account preference. The server applies it on first paint in navigation, refreshes, new tabs, new sessions, and after logout/login; it is not stored in browser storage.
-
-Administrators can choose the global public recipient language at `/admin/settings/public-experience`. English (`en`) is the default and Persian (`fa`) renders every recipient state in RTL, while passwords, usernames, API keys, URLs, code, and other technical values remain isolated LTR. Persian uses the local system fallback stack (`Vazirmatn`, `Tahoma`, and sans-serif fallbacks); SecureShare does not download an external font. Recipient dates use the selected locale with the Gregorian calendar.
-
-The admin interface never shows the original secret after creation. Historical rows never reconstruct delivery URLs because raw tokens are not stored.
-
-Email contains only the fragment-based one-time link, expiration context, and safe template text. It never includes the secret payload, link password, token hash, Vault ciphertext, SMTP credentials, or API client secrets. Link scanners and previews do not consume the secret; recipients must press Reveal to POST the token.
-
-## Tests
+Swagger and OpenAPI are authenticated by default. Set `OPENAPI_PUBLIC=true` only when the deployment intentionally exposes API documentation.
 
 ```bash
-make test
-make lint
-make openapi-validate
-make smoke
-make integration-test
-make security-test
-make qa-test
-make ui-navigation-test
-make ui-e2e
-make recipient-qa-test
+curl -fsS http://localhost:8080/version
 ```
 
-`make smoke`, `make integration-test`, `make security-test`, and `make qa-test` run against an isolated Compose project with `secureshare_test` PostgreSQL, test Vault, and Mailpit on local-only ports. `make ui-e2e` adds pinned Playwright navigation, interaction, theme, and localized recipient coverage with disposable admin, developer, and viewer fixtures. `make recipient-qa-test` is the focused English/Persian recipient and password-retry gate. The wrappers tear test stacks and volumes down after each run so automated tests do not pollute the development dashboard or audit timeline. Failure screenshots, traces, reports, authenticated state, and Node dependencies are Git-ignored.
+```json
+{"version":"0.1.0","commit":"unknown","build_date":"unknown"}
+```
 
-For optional development SMTP capture:
+Docker builds may inject `SECURESHARE_BUILD_COMMIT` and `SECURESHARE_BUILD_DATE` without changing the authoritative application version.
+
+See [API.md](API.md), the [developer guide](docs/DEVELOPER_GUIDE.md), and examples for [cURL](examples/curl/), [Go](examples/go/), [Python](examples/python/), and [JavaScript](examples/javascript/).
+
+## Email Delivery
+
+SMTP is optional and configured by administrators at `/admin/settings/email`. The SMTP password is encrypted with Vault Transit and is never returned by the API or HTML.
+
+Email delivery is explicit per secret. API clients require the `email:send` scope. Delivered messages contain only the one-time link, expiration context, and safe template content—never the secret payload or link password.
+
+For local capture:
 
 ```bash
 docker compose --profile mailpit up -d mailpit
 ```
 
-Mailpit is development-only and is not present in the production Compose file.
-Configure `/admin/settings/email` with host `mailpit`, port `1025`, encryption `none`, empty username/password, and sender `secureshare@example.local`. The settings page persists current form values before Test Connection or Send Test Email; Mailpit captures messages at [http://localhost:8025](http://localhost:8025). Unencrypted SMTP is rejected in production.
+Mailpit is available at [http://localhost:8025](http://localhost:8025). It is development-only and is not included in the production Compose file.
 
-The security test covers unauthorized create, invalid login, CSRF rejection, payload limits, invalid content types, first and second consume, concurrent consume, expired and revoked links, password throttling, security headers, cache prevention, and log leakage checks.
+## English and Persian Recipient UI
 
-## Local Secret Rotation
+Administrators choose the global public language at `/admin/settings/public-experience`.
 
-For local development:
+- English pages are LTR and display Gregorian dates in the browser's local timezone.
+- Persian pages are RTL, use the bundled Vazirmatn font, and display Jalali dates in the browser's local timezone.
+- Usernames, passwords, URLs, API keys, and code remain LTR-isolated in Persian pages.
+- Ready, revealed, retry, unavailable, session-lost, and network-error states remain fully localized.
 
-1. Stop the stack: `docker compose down`.
-2. Generate new values for `SECURESHARE_ADMIN_API_KEY`, `TOKEN_HMAC_PEPPER`, `SESSION_SECRET`, `CSRF_SECRET`, `REQUEST_IP_HASH_PEPPER`, and bootstrap admin password if the database is empty.
-3. Update `.env`.
-4. Restart: `docker compose up -d --build`.
+The original UTC timestamp remains unchanged in storage, APIs, and `<time datetime>` attributes.
 
-Changing `TOKEN_HMAC_PEPPER` invalidates existing unconsumed links because token lookup hashes no longer match.
+## Configuration
 
-## Troubleshooting
+Copy [.env.example](.env.example) for local development. Important settings include:
 
-- `health/ready` fails: check `docker compose logs app vault vault-bootstrap postgres`.
-- Vault bootstrap fails: verify `VAULT_TOKEN` matches the Vault dev root token.
-- API client returns `401`: verify the client is active, unexpired, has the required scope, and is using Basic auth as `client_id:client_secret`.
-- Email delivery returns `422`: configure and enable SMTP in `/admin/settings/email`, and ensure the API client has `email:send`.
-- Email delivery returns `201` with `delivery.email.status="failed"`: the secret was created; copy the returned URL and inspect SMTP settings/logs with redaction.
-- Create returns `503`: Vault is not ready or the Transit key is missing.
-- Consume returns `410`: the token is invalid, expired, revoked, locked, or already viewed. The response is intentionally generic.
-- Login fails locally: use the bootstrap user, default `admin` / `change-me-now`, or reset the local database volume.
+| Variable | Purpose |
+| --- | --- |
+| `APP_BASE_URL` | Public application origin |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `VAULT_ADDR` / `VAULT_TOKEN` | Vault Transit access |
+| `TOKEN_HMAC_PEPPER` | Raw-token lookup HMAC key |
+| `SESSION_SECRET` / `CSRF_SECRET` | Browser session and CSRF protection |
+| `BOOTSTRAP_ADMIN_*` | First administrator created only in an empty database |
+| `COOKIE_SECURE` | Must be `true` outside development |
+| `MAX_SECRET_TTL` | Maximum allowed delivery lifetime |
+| `METRICS_ENABLED` | Enables `/metrics` |
+| `OPENAPI_PUBLIC` | Makes API documentation public when intentionally enabled |
+
+Never commit a populated `.env` file or production credentials.
 
 ## Production Deployment
 
-Production guidance is in:
+Use [docker-compose.production.yml](docker-compose.production.yml) with:
 
-- `docs/DEPLOYMENT.md`
-- `docs/PRODUCTION_CHECKLIST.md`
-- `docs/THREAT_MODEL.md`
-- `docker-compose.production.yml`
-- `deploy/nginx/secureshare.conf`
-- `deploy/vault/secureshare-policy.hcl`
+- HTTPS termination and HSTS
+- A persistent initialized and unsealed Vault cluster—not Vault dev mode
+- Short-lived Vault authentication and Vault audit devices
+- PostgreSQL TLS, encrypted backups, and least-privilege credentials
+- Strong externally managed application secrets
+- Request/response body capture disabled in proxies, WAFs, APM, and tracing
+- Restricted network paths between SecureShare, PostgreSQL, Vault, and SMTP
+- Shared session/rate-limit infrastructure before running multiple instances
 
-Use HTTPS only, HSTS, a real Vault cluster, short-lived Vault credentials, PostgreSQL TLS, strong environment secrets, Redis-backed rate limiting for multiple replicas, body redaction in APM/reverse proxies, log shipping, backups, container scanning, and restricted network access.
+Start with the [deployment guide](docs/DEPLOYMENT.md), [production checklist](docs/PRODUCTION_CHECKLIST.md), [operations guide](OPERATIONS.md), and [architecture](ARCHITECTURE.md).
 
-Known MVP limitations:
+## Observability
 
-- Rate limits are in memory and are single-instance.
-- Local Vault runs in dev mode.
-- UI authentication uses local PostgreSQL users and sessions; machine authentication supports scoped API clients and the deprecated global admin API key.
-- OIDC, LDAP, MFA, Redis-backed limits, SMS OTP, asynchronous queue delivery, and multi-tenant isolation are not implemented yet.
-- Historical email resend is unavailable after refresh because raw tokens are not persisted.
+SecureShare provides:
+
+- Structured JSON application logs with sensitive-data exclusions
+- Safe audit events with actor, result, request ID, delivery ID, and hashed IP metadata
+- `/health/live` and `/health/ready`
+- Optional Prometheus metrics at `/metrics`
+- Application version and build metadata at `/version` and in System Status
+
+## Development
+
+```bash
+go test ./...
+go vet ./...
+make openapi-validate
+```
+
+Run the full stack with `docker compose up -d --build`. Source is formatted with `gofmt`; commits follow Conventional Commits.
+
+## Testing
+
+```bash
+make test
+make lint
+make ui-time-test
+make openapi-validate
+make smoke
+make integration-test
+make security-test
+make qa-test
+make ui-e2e
+make recipient-qa-test
+```
+
+Docker-backed test targets use isolated PostgreSQL, Vault, and Mailpit fixtures and remove their volumes afterward. Browser tests cover permissions, navigation, credential creation, link protection, theme persistence, localized recipient states, RTL/LTR isolation, and responsive layouts.
+
+## Documentation
+
+- [Architecture](ARCHITECTURE.md)
+- [API reference](API.md)
+- [Operations guide](OPERATIONS.md)
+- [Security policy](SECURITY.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+- [Developer guide](docs/DEVELOPER_GUIDE.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Production checklist](docs/PRODUCTION_CHECKLIST.md)
+- [UI architecture](docs/UI_ARCHITECTURE.md)
+- [UI QA checklist](docs/UI_QA_CHECKLIST.md)
+- [Changelog](CHANGELOG.md)
+
+## Known Limitations in v0.1.0
+
+- Local Docker Compose uses Vault dev mode.
+- SMTP delivery is synchronous.
+- Rate limiting is in-memory and is not coordinated between multiple instances.
+- Production multi-instance deployments require shared rate limiting and session storage.
+- Historical email resend is unavailable because raw link tokens are not stored.
+- SSO, LDAP, MFA, SMS OTP, asynchronous delivery queues, and multi-tenant isolation are not part of v0.1.0.
+
+## Security
+
+Do not report vulnerabilities in a public issue. Use [GitHub Private Vulnerability Reporting](https://github.com/Operalith/secureshare/security/advisories/new) as described in [SECURITY.md](SECURITY.md).
+
+Never include passwords, API keys, raw SecureShare links, SMTP credentials, Vault tokens, or secret payloads in issues, pull requests, screenshots, or logs.
+
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+SecureShare is available under the [MIT License](LICENSE).

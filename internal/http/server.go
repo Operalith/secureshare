@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"secureshare/internal/auth"
+	"secureshare/internal/buildinfo"
 	"secureshare/internal/config"
 	securecrypto "secureshare/internal/crypto"
 	"secureshare/internal/delivery"
@@ -198,6 +199,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/secret-links/consume", s.handleConsume)
 	mux.HandleFunc("/health/live", s.handleLive)
 	mux.HandleFunc("/health/ready", s.handleReady)
+	mux.HandleFunc("/version", s.handleVersion)
 	if s.cfg.MetricsEnabled {
 		mux.Handle("/metrics", s.metrics.Handler())
 	}
@@ -1843,6 +1845,14 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, delivery.CodeInvalidRequest, "Method not allowed.", http.StatusMethodNotAllowed)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, buildinfo.Current())
 }
 
 func (s *Server) requirePage(w http.ResponseWriter, r *http.Request, permission string) bool {

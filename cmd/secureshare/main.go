@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"secureshare/internal/auth"
+	"secureshare/internal/buildinfo"
 	"secureshare/internal/cleanup"
 	"secureshare/internal/config"
 	"secureshare/internal/crypto"
@@ -24,6 +26,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
+		info := buildinfo.Current()
+		fmt.Printf("SecureShare %s (commit %s, built %s)\n", buildinfo.DisplayVersion(), info.Commit, info.BuildDate)
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

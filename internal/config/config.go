@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"secureshare/internal/buildinfo"
 )
 
 const (
@@ -56,7 +58,7 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		AppEnv:                        getenv("APP_ENV", "development"),
-		AppVersion:                    getenv("APP_VERSION", "dev"),
+		AppVersion:                    buildinfo.DisplayVersion(),
 		AppAddr:                       getenv("APP_ADDR", ":8080"),
 		AppBaseURL:                    strings.TrimRight(getenv("APP_BASE_URL", "http://localhost:8080"), "/"),
 		DatabaseURL:                   getenv("DATABASE_URL", "postgres://secureshare:secureshare@localhost:5432/secureshare?sslmode=disable"),

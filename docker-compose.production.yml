@@ -3,6 +3,9 @@ services:
     image: ${SECURESHARE_IMAGE:-secureshare:latest}
     build:
       context: .
+      args:
+        BUILD_COMMIT: ${SECURESHARE_BUILD_COMMIT:-unknown}
+        BUILD_DATE: ${SECURESHARE_BUILD_DATE:-unknown}
     environment:
       APP_ENV: production
       APP_ADDR: :8080

@@ -430,7 +430,7 @@ func TestPublicExperienceSettingsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pageResp.StatusCode != http.StatusOK || !strings.Contains(string(page), `<html lang="fa" dir="rtl">`) || !strings.Contains(string(page), "یک اطلاعات محرمانه برای شما ارسال شده است") {
+	if pageResp.StatusCode != http.StatusOK || !strings.Contains(string(page), `<html lang="fa" dir="rtl">`) || !strings.Contains(string(page), "توجه داشته باشید این اطلاعات فقط یک‌بار قابل نمایش است.") {
 		t.Fatalf("Persian public page = %d: %s", pageResp.StatusCode, page)
 	}
 
