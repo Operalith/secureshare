@@ -8,11 +8,11 @@ It combines a server-rendered Go application, PostgreSQL metadata, and HashiCorp
 
 | Admin dashboard | Create a secret |
 | --- | --- |
-| ![SecureShare dashboard](docs/assets/screenshots/dashboard.png) | ![Create a one-time secret](docs/assets/screenshots/create-secret.png) |
+| ![SecureShare dashboard](https://github.com/Operalith/secureshare/releases/download/v0.1.0/dashboard.png) | ![Create a one-time secret](https://github.com/Operalith/secureshare/releases/download/v0.1.0/create-secret.png) |
 
 | Persian recipient | Revealed information |
 | --- | --- |
-| ![Persian one-time recipient page](docs/assets/screenshots/recipient-ready-fa.png) | ![Revealed one-time information](docs/assets/screenshots/recipient-revealed-en.png) |
+| ![Persian one-time recipient page](https://github.com/Operalith/secureshare/releases/download/v0.1.0/recipient-ready-fa.png) | ![Revealed one-time information](https://github.com/Operalith/secureshare/releases/download/v0.1.0/recipient-revealed-en.png) |
 
 All screenshots use isolated fake fixtures. They contain no usable credentials or one-time links.
 
